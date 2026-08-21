@@ -2192,13 +2192,6 @@ mixed-integer encodings need, but it solves, and the last row of Table 21 record
 comes back. The non-smoothness that costs nothing to write costs a great deal to
 differentiate, and it is what limits this encoding long before the network does.
 
-**And when it does finish, it is still exact.** That reduced-horizon run reproduces the
-droop to ``7\times10^{-16}`` — round-off — on a 3856-bus feeder, which is the whole point
-of separating the two failure modes. Heaviside's difficulty is *convergence*, not
-correctness: the encoding never approximates the curve, it only makes the solver work
-harder to find the point on it. A row that reads "slow" and a row that reads "wrong" are
-very different results, and this one is the first.
-
 None of this changes which encoding is *correct* — all three reproduce the curve exactly,
 here as before. It changes which one you would reach for on a feeder with an inverter at
 every service connection.
