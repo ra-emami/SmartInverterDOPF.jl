@@ -1,5 +1,5 @@
 {
-    "solve_seconds": 8.2235836,
+    "solve_seconds": 5.1229272,
     "method": "Lambda / SOS2",
     "audit": {
         "true_Vmin": 0.9922385405734502,
@@ -3073,6 +3073,7 @@
         0.9922896669603,
         0.9946817239348923
     ],
+    "host": "LinDist3Flow",
     "curt_percent": 9.71181315037962,
     "nvar": 183744,
     "P_avail_kW": [

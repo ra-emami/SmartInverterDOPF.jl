@@ -1,5 +1,5 @@
 {
-    "solve_seconds": 33.0596098,
+    "solve_seconds": 33.5815224,
     "method": "Heaviside",
     "audit": {
         "true_Vmin": 0.9922385569146228,
@@ -3073,6 +3073,7 @@
         0.9922896831556474,
         0.9946816897426195
     ],
+    "host": "LinDist3Flow",
     "curt_percent": 9.711780059904362,
     "nvar": 171072,
     "P_avail_kW": [

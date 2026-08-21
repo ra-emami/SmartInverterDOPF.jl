@@ -23,6 +23,8 @@ const SCRIPTS = [("lambda", "LinDist3Flow_Lambda.jl"),
                  ("bigm",   "LinDist3Flow_BigM.jl"),
                  ("heaviside", "LinDist3Flow_Heaviside.jl")]
 const TIMEOUT = parse(Int, get(ENV, "TP_TIMEOUT", "900"))   # seconds per run
+# horizons to fall back to, in order, when the full 96-step run does not finish
+const REDUCED_STEPS = [parse(Int, x) for x in split(get(ENV, "TP_REDUCED", "12"), ',')]
 
 "Run one script in a fresh process and scrape the numbers it prints."
 function run_one(script, case, npv, steps)
@@ -63,25 +65,45 @@ end
 rows = []
 const LOG = joinpath(OUT, "scalability_log.txt")
 logline(s) = (open(LOG, "a") do io; println(io, s); end)
-@printf("%-11s %-9s %-4s %-10s %10s %8s %10s %9s %10s\n",
-        "encoding", "feeder", "SIs", "status", "variables", "binaries", "solve (s)", "wall (s)", "max|Δq|")
+
+fin(x) = isfinite(x) ? x : nothing
+report(tag, c, steps, r, note) = begin
+    row = Dict("encoding" => tag, "feeder" => c.label, "case" => c.case,
+               "n_si" => 3 * c.npv, "steps" => steps, "ok" => r.ok,
+               "timed_out" => r.timedout,
+               "nvar" => r.nvar, "nbin" => r.nbin, "ncon" => r.ncon,
+               "solve_seconds" => fin(r.solve), "wall_seconds" => fin(r.wall),
+               "curt_kWh" => fin(r.curt), "max_droop_deviation" => fin(r.dev),
+               "Vmin" => fin(r.vlo), "Vmax" => fin(r.vhi))
+    note === nothing || (row["note"] = note)
+    push!(rows, row)
+    line = @sprintf("%-11s %-9s %-4d %-6d %-10s %10d %8d %10.1f %9.1f %10.1e",
+        tag, c.label, 3 * c.npv, steps,
+        r.ok ? "solved" : (r.timedout ? "timeout" : "FAILED"),
+        r.nvar, r.nbin, r.solve, r.wall, r.dev)
+    println(line); flush(stdout); logline(line)
+end
+
+@printf("%-11s %-9s %-4s %-6s %-10s %10s %8s %10s %9s %10s
+",
+        "encoding", "feeder", "SIs", "steps", "status", "variables", "binaries",
+        "solve (s)", "wall (s)", "max|Δq|")
 for c in CASES, (tag, script) in SCRIPTS
-    npv_total = 3 * c.npv
     r = run_one(script, c.case, c.npv, 96)
-    fin(x) = isfinite(x) ? x : nothing
-    push!(rows, Dict("encoding" => tag, "feeder" => c.label, "case" => c.case,
-                     "n_si" => npv_total, "steps" => 96, "ok" => r.ok, "timed_out" => r.timedout,
-                     "nvar" => r.nvar, "nbin" => r.nbin, "ncon" => r.ncon,
-                     "solve_seconds" => fin(r.solve), "wall_seconds" => fin(r.wall),
-                     "curt_kWh" => fin(r.curt), "max_droop_deviation" => fin(r.dev),
-                     "Vmin" => fin(r.vlo), "Vmax" => fin(r.vhi)))
-    @printf("%-11s %-9s %-4d %-10s %10d %8d %10.1f %9.1f %10.1e\n",
-            tag, c.label, npv_total, r.ok ? "solved" : (r.timedout ? "timeout" : "FAILED"),
-            r.nvar, r.nbin, r.solve, r.wall, r.dev)
-    flush(stdout)
-    logline(@sprintf("%-11s %-9s %-4d %-10s %10d %8d %10.1f %9.1f %10.1e",
-        tag, c.label, npv_total, r.ok ? "solved" : (r.timedout ? "timeout" : "FAILED"),
-        r.nvar, r.nbin, r.solve, r.wall, r.dev))
+    report(tag, c, 96, r, nothing)
+
+    # A run that does not finish at the full horizon is a scalability result, not a dead
+    # end: shrink the day and ask again. That is how the reduced-horizon Heaviside row on
+    # the large feeder is produced, and it is what shows the encoding still *solves* —
+    # reproducing the droop to round-off — once the model is small enough to differentiate.
+    if !r.ok
+        for steps in REDUCED_STEPS
+            r2 = run_one(script, c.case, c.npv, steps)
+            report(tag, c, steps, r2,
+                   "reduced horizon — the 96-step model does not finish")
+            r2.ok && break
+        end
+    end
 end
 
 open(joinpath(OUT, "scalability.json"), "w") do io
