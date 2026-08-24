@@ -17,7 +17,7 @@
 #  This is the IVACOPF counterpart of LinDist3Flow_Lambda.jl. Same feeder, same fleet,
 #  same droop block — only the network model differs. Where LinDist3Flow drops losses and
 #  assumes near-balanced voltages, IVACOPF writes the network in rectangular current and
-#  voltage coordinates, where Ohm's law (34) and KCL (35) are *exactly* linear even
+#  voltage coordinates, where Ohm's law (35) and KCL (36) are *exactly* linear even
 #  with full 3×3 mutual coupling. Only two relations are nonlinear — the v·I power
 #  balance and the voltage magnitude — and both are isolated at the buses and handled by a
 #  Taylor expansion about the previous iterate. The loop repeats until the three error
@@ -46,7 +46,7 @@ const PV_CLASSES = (("A — 3 kW",  3.0),
                     ("C — 8 kW",  8.0),
                     ("D — 12 kW", 12.0))
 const S_OVER_P       = 1.1       # inverter oversizing: S_max = 1.1 * P_rated
-const VLIM           = (0.95, 1.05)              # bus voltage limits, p.u.   — eq. (40)
+const VLIM           = (0.95, 1.05)              # bus voltage limits, p.u.   — eq. (41)
 const VBP            = [0.88, 0.90, 0.97, 1.00, 1.02, 1.10]   # IEEE 1547 breakpoints, p.u.
 const QSHAPE         = [1.0, 1.0, 0.0, 0.0, -1.0, -1.0]       # q / q̄ at each breakpoint
 const SBASE_KVA      = 100.0     # per-phase power base
@@ -58,7 +58,7 @@ const FIGSUF         = "_iva"            # suffix on the figure filenames
 const MAX_ITER  = parse(Int,     get(ENV, "TP_MAXITER", "15"))
 const TOL       = parse(Float64, get(ENV, "TP_TOL", "1e-6"))    # on max(MAPB, MRPB, MVM)
 const WARMSTART = get(ENV, "TP_WARMSTART", "sweep") == "sweep"  # else flat 1∠0°,∓120°
-# Thermal line limit (41) is a *quadratic* constraint. Written as an IMAX_SEG-sided
+# Thermal line limit (42) is a *quadratic* constraint. Written as an IMAX_SEG-sided
 # polygon inscribing the circle it stays linear, so the model remains an MILP. On these
 # ENWL feeders the peak flow is a small fraction of the conductor rating, so it is left
 # off by default and reported instead; set IMAX_SEG > 0 (e.g. 8) to enforce it.
@@ -118,14 +118,14 @@ for (_, l) in pairs(net.line)
 end
 nbr = length(BR)
 
-# The IVACOPF line equations (34) want the impedance split into its real and imaginary
+# The IVACOPF line equations (35) want the impedance split into its real and imaginary
 # 3×3 parts. Note that no rotation operator appears anywhere: unlike LinDist3Flow, this
 # host never assumes the three phases are near-balanced, so the raw coupled impedance is
 # all it needs.
 Rm = [real.(b.Z) for b in BR]
 Xm = [imag.(b.Z) for b in BR]
 
-# Shunt admittances y^{φp} — the Σ y V terms of (33) and (34). The ENWL feeders are
+# Shunt admittances y^{φp} — the Σ y V terms of (34) and (35). The ENWL feeders are
 # supplied Kron-reduced to three wires with zero shunt, so these terms vanish here; they
 # are kept explicit so a dataset that carries them can be dropped in.
 YSH = [zeros(ComplexF64, 3, 3) for _ in BR]
@@ -327,7 +327,7 @@ for it in 1:MAX_ITER
     set_optimizer_attribute(model, "MIPGap", MIP_GAP)
 
     # ---- host variables ---------------------------------------------------------------
-    # v is the voltage *magnitude*, eq. (39), bounded by (40); v_r/v_im are the rectangular
+    # v is the voltage *magnitude*, eq. (40), bounded by (41); v_r/v_im are the rectangular
     # network equations are actually written in.
     @variable(model, VLIM[1] <= v[1:nb, PHASES, 1:T] <= VLIM[2], start = VNOM)
     @variable(model, v_r[b = 1:nb, φ = PHASES, t = 1:T],  start = v_r_pr[b, φ, t])
@@ -346,8 +346,8 @@ for it in 1:MAX_ITER
     @constraint(model, [φ in PHASES, t in 1:T], v_r[islack, φ, t]  == real(V0[φ]))
     @constraint(model, [φ in PHASES, t in 1:T], v_im[islack, φ, t] == imag(V0[φ]))
 
-    # ---- line current constraints, eq. (34): exact, linear, fully phase-coupled --------
-    #  V_n − V_m = Z_nm I_nm  (shunt terms of (33) omitted — zero on this dataset), split
+    # ---- line current constraints, eq. (35): exact, linear, fully phase-coupled --------
+    #  V_n − V_m = Z_nm I_nm  (shunt terms of (34) omitted — zero on this dataset), split
     #  into real and imaginary parts. Every mutual term Z[φ,ψ], ψ ≠ φ, is carried: no
     #  transposition, no balance and no sequence decomposition is assumed anywhere.
     @constraint(model, [k in 1:nbr, φ in PHASES, t in 1:T],
@@ -357,7 +357,7 @@ for it in 1:MAX_ITER
         v_im[bus_id[BR[k].from], φ, t] - v_im[bus_id[BR[k].to], φ, t] ==
             sum(Rm[k][φ, ψ] * Ibr_im[k, ψ, t] + Xm[k][φ, ψ] * Ibr_r[k, ψ, t] for ψ in PHASES))
 
-    # ---- bus current injection, eq. (35): KCL, per bus and phase — exact and linear ----
+    # ---- bus current injection, eq. (36): KCL, per bus and phase — exact and linear ----
     @constraint(model, [b in 1:nb, φ in PHASES, t in 1:T],
         Ibs_r[b, φ, t] == sum(Ibr_r[k, φ, t] for k in out_br[b]; init = zero(AffExpr))
                         - sum(Ibr_r[k, φ, t] for k in in_br[b];  init = zero(AffExpr)))
@@ -365,7 +365,7 @@ for it in 1:MAX_ITER
         Ibs_im[b, φ, t] == sum(Ibr_im[k, φ, t] for k in out_br[b]; init = zero(AffExpr))
                          - sum(Ibr_im[k, φ, t] for k in in_br[b];  init = zero(AffExpr)))
 
-    # ---- power balance, eq. (36), linearised as eq. (37)–(38) --------------------------
+    # ---- power balance, eq. (37), linearised as eq. (38)–(39) --------------------------
     #  The only nonlinearity in the whole network model, and it lives at the buses rather
     #  than along the lines. Each product xy is replaced by x∘y + y∘x − x∘y∘.
     Plin(b, φ, t) = v_r_pr[b,φ,t]  * Ibs_r[b,φ,t]  + Ibs_r_pr[b,φ,t]  * v_r[b,φ,t] +
@@ -388,14 +388,14 @@ for it in 1:MAX_ITER
     @constraint(model, [b in 1:nb, φ in PHASES, t in 1:T], netQ[b,φ,t] == Qlin(b,φ,t))
     #                                                      ↑ where the droop meets the network
 
-    # ---- voltage magnitude, eq. (39) --------------------------------------------------
+    # ---- voltage magnitude, eq. (40) --------------------------------------------------
     #  This v is the single quantity the droop module reads.
     @constraint(model, [b in 1:nb, φ in PHASES, t in 1:T],
         v[b, φ, t] == (v_r_pr[b,φ,t]  / hypot(v_r_pr[b,φ,t], v_im_pr[b,φ,t])) * v_r[b,φ,t]
                     + (v_im_pr[b,φ,t] / hypot(v_r_pr[b,φ,t], v_im_pr[b,φ,t])) * v_im[b,φ,t])
 
-    # ---- thermal line limit, eq. (41), as a linear polygon inscribing the circle -------
-    #  IVACOPF carries the line current as a decision variable, so (41) is a constraint
+    # ---- thermal line limit, eq. (42), as a linear polygon inscribing the circle -------
+    #  IVACOPF carries the line current as a decision variable, so (42) is a constraint
     #  you can simply write — LinDist3Flow has no I to write it about. Off by default:
     #  see IMAX_SEG above.
     if IMAX_SEG > 0
@@ -471,9 +471,9 @@ for it in 1:MAX_ITER
     Pdg_v, Qdg_v, PVC_v = value.(Pdg), value.(Qdg), value.(PVC)
 
     # ---- linearisation error, measured against the TRUE nonlinear relations -----------
-    #  MAPB and MRPB: the exact bilinear v·I of (36) minus the linear (37)–(38), which the
+    #  MAPB and MRPB: the exact bilinear v·I of (37) minus the linear (38)–(39), which the
     #  constraint has forced equal to the net injection.
-    #  MVM: the exact magnitude √(v_r² + v_im²) minus the linearised (39).
+    #  MVM: the exact magnitude √(v_r² + v_im²) minus the linearised (40).
     #  Converging on these rather than on the model's own residual is what makes the
     #  returned point a genuine power-flow solution and not a solution of the approximation.
     MAPB = maximum(abs(Vr[b,φ,t]*Ibs_r_v[b,φ,t] + Vi[b,φ,t]*Ibs_im_v[b,φ,t] - netP_v[b,φ,t])
@@ -513,7 +513,7 @@ branch_loss(k, φ, t) =
 Sloss    = sum(branch_loss(k, φ, t) for k in 1:nbr, φ in PHASES, t in 1:T)
 loss_kWh = kWh(real(Sloss))
 
-# how close the thermal limit (41) came to binding
+# how close the thermal limit (42) came to binding
 Iutil = maximum(hypot(Ibr_r_v[k,φ,t], Ibr_im_v[k,φ,t]) / BR[k].imax
                 for k in 1:nbr, φ in PHASES, t in 1:T)
 
@@ -532,7 +532,7 @@ for φ in PHASES
     @printf("  phase %d            : %.4f – %.4f p.u.\n", φ,
             minimum(V[:, φ, :]), maximum(V[:, φ, :]))
 end
-@printf("peak line loading   : %.1f %% of i_max  (thermal limit (41) %s)\n",
+@printf("peak line loading   : %.1f %% of i_max  (thermal limit (42) %s)\n",
         100 * Iutil, IMAX_SEG > 0 ? "enforced" : "reported only")
 
 # ---- verification 1: every dispatch point must lie ON the droop curve ------------------

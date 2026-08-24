@@ -1603,10 +1603,19 @@ one scalar each host has to supply.
 
 ### LinDist3Flow: the linear host
 
-The multiphase form of the LinDistFlow linearisation [[3]](#ref-3), from Gan and
-Low [[12]](#ref-12). Each line carries a 3×3 phase impedance ``Z`` rather than a scalar,
-and the phases couple. Starting from ``\lvert V_j\rvert^2 = \lvert V_i - Z I\rvert^2``,
-dropping the quadratic term and assuming voltages stay near-balanced gives, per phase
+The multiphase form of the LinDistFlow linearisation [[3]](#ref-3), from Sankur, Dobbe,
+Stewart, Callaway and Arnold [[12]](#ref-12). Each line carries a 3×3 phase impedance
+``Z`` rather than a scalar and the phases couple, so a scalar ``rP + xQ`` drop no longer
+suffices.
+
+That paper writes KVL and KCL in three-phase vector form and derives the exact
+**Dist3Flow** equations, Eqs. (14)–(17) of [[12]](#ref-12). Two things in them are
+nonlinear: the loss terms, and the *ratio of voltages between phases* at a node,
+``\gamma_n^{\varphi\psi} = V_n^{\varphi}/V_n^{\psi}``, which scales and rotates the
+off-diagonal impedances. **LinDist3Flow is what follows from holding both constant** — the
+paper's assumptions **A1** (``\gamma`` constant) and **A2** (loss terms constant). Fixing
+``\gamma`` at its nominal value, ``1\angle{\pm}120^{\circ}``, and dropping losses
+altogether gives Eqs. (20)–(23) of [[12]](#ref-12), the model used here. Per phase
 ``\varphi``:
 
 ```math
@@ -1620,17 +1629,33 @@ a^X_{\varphi\psi} &= 2\,\mathrm{Im}\!\left(\alpha^{\psi-\varphi} Z_{\varphi\psi}
 ```
 
 with ``w = \lvert V\rvert^2`` the squared voltage magnitude and ``\alpha = e^{-j2\pi/3}``
-the 120° rotation. The ``\pm\sqrt{3}`` cross-terms in the
-published form of these matrices are that rotation written out. Two checks are worth
-carrying: for a single phase ``\alpha^0 = 1`` gives ``a^R = 2r`` and ``a^X = 2x``,
-recovering ``w_j = w_i - 2(rP + xQ)``; and for diagonal ``Z`` the matrices are diagonal
-and the phases decouple into three independent LinDistFlows.
+the 120° rotation. This is Eq. (21) of [[12]](#ref-12). Writing the rotation out term by
+term recovers its coefficient matrices, Eqs. (22)–(23), exactly — with
+``a^R = -\mathbb{M}^P`` and ``a^X = -\mathbb{M}^Q``:
+
+```math
+a^R_{ij} =
+\begin{bmatrix}
+ 2r^{aa} & -r^{ab}+\sqrt{3}\,x^{ab} & -r^{ac}-\sqrt{3}\,x^{ac}\\
+-r^{ba}-\sqrt{3}\,x^{ba} &  2r^{bb} & -r^{bc}+\sqrt{3}\,x^{bc}\\
+-r^{ca}+\sqrt{3}\,x^{ca} & -r^{cb}-\sqrt{3}\,x^{cb} &  2r^{cc}
+\end{bmatrix} \tag{32}
+```
+
+and ``a^X`` identically, with ``r`` and ``x`` exchanged and the sign of every
+``\sqrt{3}`` term flipped. Those ``\pm\sqrt{3}`` cross-terms are the ``120^{\circ}``
+rotation written out, and they are what makes this a *three-phase* model rather than three
+single-phase ones running side by side. Two checks are worth carrying: for a single phase
+``\alpha^0 = 1`` gives ``a^R = 2r`` and ``a^X = 2x``, recovering
+``w_j = w_i - 2(rP + xQ)``; and for diagonal ``Z`` the matrices are diagonal and the
+phases decouple into three independent LinDistFlows.
 
 The implementation works in magnitude rather than squared magnitude
 (``w_j - w_i \approx 2 V^{\mathrm{nom}}(v_j - v_i)`` near nominal) so that the droop
 breakpoints stay in ordinary p.u. voltage. That done, the complete host is four
-equations — power balance per bus *and* per phase, the coupled drop, the slack, and the
-voltage limits:
+equations — the lossless power balance per bus *and* per phase, which is Eq. (20) of
+[[12]](#ref-12), the coupled drop above, the slack, and the voltage limits its OPF,
+Eq. (24), imposes:
 
 ```math
 \begin{aligned}
@@ -1645,7 +1670,7 @@ v_j^{\varphi} &= v_i^{\varphi} - \sum_{\psi \in \Psi} \Big( \tilde a^R_{\varphi\
                                        + \tilde a^X_{\varphi\psi} Q_{ij}^{\psi} \Big)
                                    & &\forall (i,j) \in \mathcal{L},\ \varphi \in \Psi\\
 V^{\min} &\le v_j^{\varphi} \le V^{\max} & &\forall j \in \mathcal{B},\ \varphi \in \Psi
-\end{aligned} \tag{32}
+\end{aligned} \tag{33}
 ```
 
 with ``\Psi = \{a,b,c\}`` the phase set, ``\varphi`` and ``\psi`` phases within it, and
@@ -1710,12 +1735,12 @@ admittance ``y_{nm}^{p,k}``:
 V_n^{\varphi} - V_m^{\varphi} = \sum_{p\in\Psi} Z_{nm}^{\varphi p} I_{nm}^{p}
    \;-\; \tfrac{1}{2}\sum_{p\in\Psi} Z_{nm}^{\varphi p}
           \Big( \sum_{k\in\Psi} y_{nm}^{p,k} V_n^{k} \Big),
-\qquad \forall \varphi \in \Psi \tag{33}
+\qquad \forall \varphi \in \Psi \tag{34}
 ```
 
 Three physical contributions, in two sums: the current in the same phase (the ``p = \varphi``
 term), the currents in the *other* phases reaching this one through the mutual impedances,
-and the shunt current. Splitting (33) into real and imaginary parts gives, for the
+and the shunt current. Splitting (34) into real and imaginary parts gives, for the
 Kron-reduced three-wire feeders used here — where ``y = 0``,
 
 ```math
@@ -1727,7 +1752,7 @@ v_n^{\mathrm{im},\varphi} - v_m^{\mathrm{im},\varphi}
   &= \sum_{p\in\Psi}\Big( R_{nm}^{\varphi p} I_{nm}^{\mathrm{im},p}
                         + X_{nm}^{\varphi p} I_{nm}^{\mathrm{re},p} \Big)
 \end{aligned}
-\qquad \forall (n,m) \in \mathcal{L},\ \varphi \in \Psi \tag{34}
+\qquad \forall (n,m) \in \mathcal{L},\ \varphi \in \Psi \tag{35}
 ```
 
 These are **exact and linear**. No rotation operator appears, nothing is transposed, and
@@ -1741,7 +1766,7 @@ I_n^{\mathrm{re},\varphi} = \sum_{m:(n,m)\in\mathcal{L}} I_{nm}^{\mathrm{re},\va
                           - \sum_{k:(k,n)\in\mathcal{L}} I_{kn}^{\mathrm{re},\varphi},
 \qquad
 I_n^{\mathrm{im},\varphi} = \sum_{m:(n,m)\in\mathcal{L}} I_{nm}^{\mathrm{im},\varphi}
-                          - \sum_{k:(k,n)\in\mathcal{L}} I_{kn}^{\mathrm{im},\varphi} \tag{35}
+                          - \sum_{k:(k,n)\in\mathcal{L}} I_{kn}^{\mathrm{im},\varphi} \tag{36}
 ```
 
 **Power balance** — the first of the two nonlinear relations:
@@ -1755,10 +1780,10 @@ q_n^{G,\varphi} - q_n^{L,\varphi}
    &= v_n^{\mathrm{im},\varphi} I_n^{\mathrm{re},\varphi}
     - v_n^{\mathrm{re},\varphi} I_n^{\mathrm{im},\varphi}
 \end{aligned}
-\qquad \forall n \in \Upsilon,\ \varphi \in \Psi \tag{36}
+\qquad \forall n \in \Upsilon,\ \varphi \in \Psi \tag{37}
 ```
 
-**Linearised power balance.** Each product ``xy`` in (36) is replaced by its first-order
+**Linearised power balance.** Each product ``xy`` in (37) is replaced by its first-order
 Taylor expansion about the previous iterate, ``xy \approx x^{\circ}y + y^{\circ}x -
 x^{\circ}y^{\circ}``, where ``\circ`` marks a value **fixed from the previous pass** — a
 constant, not a variable:
@@ -1777,7 +1802,7 @@ constant, not a variable:
    - I_n^{\mathrm{im},\varphi\circ} v_n^{\mathrm{re},\varphi}
    - v_n^{\mathrm{im},\varphi\circ} I_n^{\mathrm{re},\varphi\circ}
    + v_n^{\mathrm{re},\varphi\circ} I_n^{\mathrm{im},\varphi\circ}
-\end{aligned} \tag{37}
+\end{aligned} \tag{38}
 ```
 
 which are then set equal to the net injection at each class of bus:
@@ -1790,7 +1815,7 @@ q_0^{\mathrm{grid},\varphi} &= \mathcal{Q}_0^{\varphi} & &\text{substation}\\
 -q_n^{L,\varphi} &= \mathcal{Q}_n^{\varphi} & &\text{load-only bus and phase}\\
 p_i^{G} - p_n^{L,\varphi} &= \mathcal{P}_n^{\varphi}, &
 q_i^{G} - q_n^{L,\varphi} &= \mathcal{Q}_n^{\varphi} & &\text{inverter } i \text{ at } (n,\varphi)
-\end{aligned} \tag{38}
+\end{aligned} \tag{39}
 ```
 
 The last line is where the droop enters the network: ``q_i^{G}`` is exactly the variable
@@ -1805,14 +1830,14 @@ v_n^{\varphi} = \sqrt{\big(v_n^{\mathrm{re},\varphi}\big)^2 + \big(v_n^{\mathrm{
 v_n^{\varphi} = \frac{v_n^{\mathrm{re},\varphi\circ}}
    {\sqrt{\big(v_n^{\mathrm{re},\varphi\circ}\big)^2 + \big(v_n^{\mathrm{im},\varphi\circ}\big)^2}}\, v_n^{\mathrm{re},\varphi}
  + \frac{v_n^{\mathrm{im},\varphi\circ}}
-   {\sqrt{\big(v_n^{\mathrm{re},\varphi\circ}\big)^2 + \big(v_n^{\mathrm{im},\varphi\circ}\big)^2}}\, v_n^{\mathrm{im},\varphi} \tag{39}
+   {\sqrt{\big(v_n^{\mathrm{re},\varphi\circ}\big)^2 + \big(v_n^{\mathrm{im},\varphi\circ}\big)^2}}\, v_n^{\mathrm{im},\varphi} \tag{40}
 ```
 
 **Voltage limits.** The band every bus and phase must stay inside:
 
 ```math
 V^{\min} \le v_n^{\varphi} \le V^{\max},
-\qquad \forall n \in \Upsilon,\ \varphi \in \Psi \tag{40}
+\qquad \forall n \in \Upsilon,\ \varphi \in \Psi \tag{41}
 ```
 
 **Thermal line limits.** The conductor rating, per line and phase:
@@ -1820,10 +1845,10 @@ V^{\min} \le v_n^{\varphi} \le V^{\max},
 ```math
 \big(I_{nm}^{\mathrm{re},\varphi}\big)^2 + \big(I_{nm}^{\mathrm{im},\varphi}\big)^2
    \le \big(I_{nm}^{\max,\varphi}\big)^2,
-\qquad \forall (n,m) \in \mathcal{L},\ \varphi \in \Psi \tag{41}
+\qquad \forall (n,m) \in \mathcal{L},\ \varphi \in \Psi \tag{42}
 ```
 
-Constraint (41) is worth pausing on: IVACOPF carries the line current as a decision
+Constraint (42) is worth pausing on: IVACOPF carries the line current as a decision
 variable, so a thermal limit is something you simply *write*. LinDist3Flow has no ``I`` to
 write it about. It is quadratic, so the scripts offer it as a polygon inscribing the circle
 — keeping the model an MILP — and leave it off by default, because on these Electricity
@@ -1836,7 +1861,7 @@ by Soltani, Khorsand and Ma [[4]](#ref-4):
 ```math
 v_0^{\mathrm{re},\varphi} = \cos\theta_{\varphi},\quad
 v_0^{\mathrm{im},\varphi} = \sin\theta_{\varphi},
-\qquad \theta = (0°,\, -120°,\, +120°) \tag{42}
+\qquad \theta = (0°,\, -120°,\, +120°) \tag{43}
 ```
 
 Seeding all three phases at ``1\angle 0°`` instead is a silent and expensive mistake: the
@@ -1846,7 +1871,7 @@ mutual terms then add rather than largely cancelling.
 nonlinear relations — not against the model's own residual. Following [[4]](#ref-4), three
 metrics are used: the **maximum absolute active power balance** error (MAPB), the
 **maximum absolute reactive power balance** error (MRPB), and the **maximum
-voltage-magnitude** error (MVM). Writing (36) minus (37) and (39) exact minus linearised,
+voltage-magnitude** error (MVM). Writing (37) minus (38) and (40) exact minus linearised,
 
 ```math
 \begin{aligned}
@@ -1861,7 +1886,7 @@ voltage-magnitude** error (MVM). Writing (36) minus (37) and (39) exact minus li
 \text{MVM} &= \max_{n\in\Upsilon,\,\varphi\in\Psi}
    \Big| \sqrt{\big(v_n^{\mathrm{re},\varphi}\big)^2 + \big(v_n^{\mathrm{im},\varphi}\big)^2}
          - v_n^{\varphi} \Big|
-\end{aligned} \tag{43}
+\end{aligned} \tag{44}
 ```
 
 the loop repeats with a refreshed ``\circ`` point until
@@ -1875,12 +1900,12 @@ independently.
 The whole host, with `_pr` marking a value carried over from the previous pass:
 
 ```julia
-# ---- slack reference: 1∠0°, 1∠−120°, 1∠+120° — eq. (42) --------------------------
+# ---- slack reference: 1∠0°, 1∠−120°, 1∠+120° — eq. (43) --------------------------
 const V0 = ComplexF64[1, exp(-2π*im/3), exp(2π*im/3)]
 @constraint(model, [φ in PHASES, t in 1:T], v_r[islack, φ, t]  == real(V0[φ]))
 @constraint(model, [φ in PHASES, t in 1:T], v_im[islack, φ, t] == imag(V0[φ]))
 
-# ---- line current constraints, eq. (34): exact, linear, fully phase-coupled ---------
+# ---- line current constraints, eq. (35): exact, linear, fully phase-coupled ---------
 @constraint(model, [k in 1:nbr, φ in PHASES, t in 1:T],
     v_r[bus_id[BR[k].from], φ, t] - v_r[bus_id[BR[k].to], φ, t] ==
         sum(Rm[k][φ,ψ] * Ibr_r[k,ψ,t] - Xm[k][φ,ψ] * Ibr_im[k,ψ,t] for ψ in PHASES))
@@ -1888,7 +1913,7 @@ const V0 = ComplexF64[1, exp(-2π*im/3), exp(2π*im/3)]
     v_im[bus_id[BR[k].from], φ, t] - v_im[bus_id[BR[k].to], φ, t] ==
         sum(Rm[k][φ,ψ] * Ibr_im[k,ψ,t] + Xm[k][φ,ψ] * Ibr_r[k,ψ,t] for ψ in PHASES))
 
-# ---- bus current injection, eq. (35): KCL per bus and phase -------------------------
+# ---- bus current injection, eq. (36): KCL per bus and phase -------------------------
 @constraint(model, [b in 1:nb, φ in PHASES, t in 1:T],
     Ibs_r[b,φ,t] == sum(Ibr_r[k,φ,t] for k in out_br[b]; init = zero(AffExpr))
                   - sum(Ibr_r[k,φ,t] for k in in_br[b];  init = zero(AffExpr)))
@@ -1896,7 +1921,7 @@ const V0 = ComplexF64[1, exp(-2π*im/3), exp(2π*im/3)]
     Ibs_im[b,φ,t] == sum(Ibr_im[k,φ,t] for k in out_br[b]; init = zero(AffExpr))
                    - sum(Ibr_im[k,φ,t] for k in in_br[b];  init = zero(AffExpr)))
 
-# ---- power balance, eq. (36), linearised as eq. (37)–(38) ---------------------------
+# ---- power balance, eq. (37), linearised as eq. (38)–(39) ---------------------------
 Plin(b,φ,t) = v_r_pr[b,φ,t]  * Ibs_r[b,φ,t]  + Ibs_r_pr[b,φ,t]  * v_r[b,φ,t] +
               v_im_pr[b,φ,t] * Ibs_im[b,φ,t] + Ibs_im_pr[b,φ,t] * v_im[b,φ,t] -
               v_r_pr[b,φ,t]  * Ibs_r_pr[b,φ,t] - v_im_pr[b,φ,t] * Ibs_im_pr[b,φ,t]
@@ -1908,12 +1933,12 @@ Qlin(b,φ,t) = v_im_pr[b,φ,t] * Ibs_r[b,φ,t]  + Ibs_r_pr[b,φ,t]  * v_im[b,φ,
 @constraint(model, [b in 1:nb, φ in PHASES, t in 1:T], netQ[b,φ,t] == Qlin(b,φ,t))
 #                                                      ↑ where the droop meets the network
 
-# ---- voltage magnitude, eq. (39) — this is the v the droop reads -------------------
+# ---- voltage magnitude, eq. (40) — this is the v the droop reads -------------------
 @constraint(model, [b in 1:nb, φ in PHASES, t in 1:T],
     v[b,φ,t] == (v_r_pr[b,φ,t]  / hypot(v_r_pr[b,φ,t], v_im_pr[b,φ,t])) * v_r[b,φ,t]
               + (v_im_pr[b,φ,t] / hypot(v_r_pr[b,φ,t], v_im_pr[b,φ,t])) * v_im[b,φ,t])
 
-# ---- thermal line limit, eq. (41), as a linear polygon inscribing the circle --------
+# ---- thermal line limit, eq. (42), as a linear polygon inscribing the circle --------
 for l in 1:IMAX_SEG
     θ = l * π / IMAX_SEG
     @constraint(model, [k in 1:nbr, φ in PHASES, t in 1:T],
@@ -1964,7 +1989,7 @@ variable, and constrains one scalar reactive output against it.
 That is why the three droop blocks below are the same algebra as their single-phase
 counterparts, with `v[d,h,m]` replaced by `vpv(i,t)` — and why the *same* three blocks
 drop unchanged into either host. In LinDist3Flow `v` is a decision variable directly; in
-IVACOPF it is the linearised magnitude (39). The droop neither knows nor cares.
+IVACOPF it is the linearised magnitude (40). The droop neither knows nor cares.
 
 **Lambda / SOS2** — weights shared between the sensed voltage and the reactive output:
 
@@ -2171,7 +2196,7 @@ inverters matter.
 
 ## What each host costs
 
-**Table 19.** Successive-linearisation passes for the three-phase IVACOPF host, Lambda encoding, measured with the error metrics of (43).
+**Table 19.** Successive-linearisation passes for the three-phase IVACOPF host, Lambda encoding, measured with the error metrics of (44).
 
 ```@example tut
 tp_pass_table()   # hide
@@ -2197,7 +2222,7 @@ the price, and Table 18 is what it buys.
 |:--|:--|:--|
 | line equations | approximate — ``\alpha``-rotated drop coefficients, near-balance assumed | **exact** — ``\Delta V = ZI`` with full mutual coupling, nothing assumed |
 | losses | dropped from the balance | modelled, via the current variables |
-| line currents | not represented | decision variables, so the thermal limit (41) is writable |
+| line currents | not represented | decision variables, so the thermal limit (42) is writable |
 | nonlinearity | none | two bus relations, ``v\cdot I`` and ``\lvert v\rvert``, linearised and iterated |
 | solve | **one pass** | one MILP (or NLP) **per pass**, plus warm-start sweeps |
 | dispatch on the real network | off the droop by a visible margin | on the droop to round-off |
@@ -2288,9 +2313,9 @@ different network without touching the code:
 | `TP_STEPS` | `96` | time steps in the day |
 | `TP_NPV` | `4` | smart inverters per phase |
 | `TP_WARMSTART` | `sweep` | IVACOPF only — `flat` for the flat start of Soltani, Khorsand and Ma [[4]](#ref-4) |
-| `TP_TOL` | `1e-6` | IVACOPF only — stop tolerance on ``\max(\text{MAPB}, \text{MRPB}, \text{MVM})``, eq. (43) |
+| `TP_TOL` | `1e-6` | IVACOPF only — stop tolerance on ``\max(\text{MAPB}, \text{MRPB}, \text{MVM})``, eq. (44) |
 | `TP_MAXITER` | `15` | IVACOPF only — pass limit |
-| `TP_IMAXSEG` | `0` | IVACOPF only — sides of the polygon enforcing (41); 0 disables it |
+| `TP_IMAXSEG` | `0` | IVACOPF only — sides of the polygon enforcing (42); 0 disables it |
 
 ```bash
 TP_CASE=network_17_Feeder_6 TP_STEPS=24 julia --project=examples/three_phase examples/three_phase/IVACOPF3Ph_Lambda.jl
@@ -2468,11 +2493,16 @@ optimised, not merely respected
 ```@raw html
 <a id="ref-12"></a>
 ```
-**[12]** L. Gan and S. H. Low, "Convex relaxations and linear approximation for optimal
-power flow in multiphase radial networks," *2014 Power Systems Computation Conference
-(PSCC)*, pp. 1–9, 2014.
-[doi:10.1109/PSCC.2014.7038399](https://doi.org/10.1109/PSCC.2014.7038399)
-— **LinDist3Flow**, the multiphase linearisation used for the three-phase case
+**[12]** M. D. Sankur, R. Dobbe, E. Stewart, D. S. Callaway, and D. B. Arnold, "A
+linearized power flow model for optimization in unbalanced distribution systems,"
+*arXiv:1606.04492*, 2016.
+[arXiv:1606.04492](https://arxiv.org/abs/1606.04492)
+— **LinDist3Flow**, the multiphase linearisation used for the three-phase case. Its exact
+Dist3Flow equations, its Eqs. (14)–(17), become LinDist3Flow under assumptions **A1**
+(constant inter-phase voltage ratios) and **A2** (constant loss terms); at nominal
+voltages and zero losses they reduce to its Eqs. (20)–(23), which is what this page
+implements. Equation numbers written as "Eq. (n) of [12]" are that paper's; unqualified
+numbers are this page's own.
 
 ```@raw html
 <a id="ref-13"></a>

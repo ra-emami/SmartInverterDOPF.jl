@@ -7,7 +7,7 @@ model is.
 
 | host | scripts | model | solve |
 |:--|:--|:--|:--|
-| **LinDist3Flow** | `LinDist3Flow_*.jl` | multiphase linearised branch flow (Gan & Low) | one pass |
+| **LinDist3Flow** | `LinDist3Flow_*.jl` | multiphase linearised branch flow (Sankur et al.) | one pass |
 | **IVACOPF** | `IVACOPF3Ph_*.jl` | three-phase current-voltage AC-OPF (Soltani, Khorsand & Ma) | successive linearisation, iterated |
 
 Run from this directory:
@@ -180,8 +180,14 @@ Two sanity checks are worth keeping in mind: for a single phase `α⁰ = 1` give
 `aX = 2x`, recovering `w_j = w_i − 2(rP + xQ)`; and for diagonal `Z` the phases decouple
 into three independent LinDistFlows.
 
-Reference: Gan & Low, *Convex relaxations and linear approximation for optimal power flow
-in multiphase radial networks*, PSCC 2014, [doi:10.1109/PSCC.2014.7038399](https://doi.org/10.1109/PSCC.2014.7038399).
+`aR` and `aX` are minus the `M^P`, `M^Q` of eqs. (22)-(23) of the reference; the drop is
+its eq. (21) and the lossless power balance is its eq. (20). Both follow from its exact
+Dist3Flow eqs. (14)-(17) under assumptions A1 (constant inter-phase voltage ratios) and
+A2 (constant loss terms).
+
+Reference: M. D. Sankur, R. Dobbe, E. Stewart, D. S. Callaway, and D. B. Arnold,
+*A linearized power flow model for optimization in unbalanced distribution systems*,
+arXiv:1606.04492, 2016, [arXiv:1606.04492](https://arxiv.org/abs/1606.04492).
 
 ### IVACOPF
 

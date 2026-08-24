@@ -1,7 +1,8 @@
 # =====================================================================================
 #  Three-phase Volt-VAr droop in a distribution OPF
 #  HOST   : LinDist3Flow  — the three-phase (multiphase) LinDistFlow linearisation
-#                          of Gan & Low, PSCC 2014, doi:10.1109/PSCC.2014.7038399
+#                          of Sankur, Dobbe, Stewart, Callaway & Arnold,
+#                          arXiv:1606.04492 (2016) — their eqs. (20)–(23)
 #  DROOP  : Big-M          — one binary per segment, exact product linearisation
 #
 #  Test system : network_5_Feeder_2, a real 415/240 V LV feeder from the ENWL dataset,
@@ -39,7 +40,7 @@ const PV_CLASSES = (("A — 3 kW",  3.0),
                     ("C — 8 kW",  8.0),
                     ("D — 12 kW", 12.0))
 const S_OVER_P       = 1.1       # inverter oversizing: S_max = 1.1 * P_rated
-const VLIM           = (0.95, 1.05)              # bus voltage limits, p.u. — eq. (32)
+const VLIM           = (0.95, 1.05)              # bus voltage limits, p.u. — eq. (33)
 const VBP            = [0.88, 0.90, 0.97, 1.00, 1.02, 1.10]   # IEEE 1547 breakpoints, p.u.
 const QSHAPE         = [1.0, 1.0, 0.0, 0.0, -1.0, -1.0]       # q / q̄ at each breakpoint
 const SBASE_KVA      = 100.0     # per-phase power base
@@ -109,7 +110,7 @@ for (_, ld) in pairs(net.load)
 end
 
 # =============================================== 2) LinDist3Flow voltage-drop matrices ==
-#  This whole block is eq. (31) of the tutorial.
+#  This whole block is eq. (31)–(32) of the tutorial, i.e. eqs. (21)–(23) of Sankur et al.
 #
 #  For a line with 3×3 phase impedance Z, and voltages that are near-balanced (the
 #  standing assumption of every LinDistFlow variant), the drop in *squared* magnitude is
@@ -128,12 +129,22 @@ end
 #
 #  We then work in magnitude rather than squared magnitude, exactly as the single-phase
 #  code does: w = v² and v ≈ 1 give w_j − w_i ≈ 2·VNOM·(v_j − v_i), hence the 2·VNOM
-#  divisor below. Reference: Gan & Low, "Convex relaxations and linear approximation for
-#  OPF in multiphase radial networks", PSCC 2014 (doi:10.1109/PSCC.2014.7038399).
+#  divisor below.
+#
+#  Reference: M. D. Sankur, R. Dobbe, E. Stewart, D. S. Callaway, D. B. Arnold, "A
+#  linearized power flow model for optimization in unbalanced distribution systems",
+#  arXiv:1606.04492 (2016).  aR and aX below are MINUS that paper's M^P and M^Q, its
+#  eqs. (22)-(23); the drop itself is its eq. (21) and the lossless power balance used
+#  further down is its eq. (20). Both follow from its exact Dist3Flow eqs. (14)-(17)
+#  under assumptions A1 (constant inter-phase voltage ratios) and A2 (constant losses).
+#
+#  Term-by-term check of the (a,b) entry, paper against this code:
+#      M^P(a,b) =  r_ab - sqrt(3) x_ab   ->   aR[1,2] = -r_ab + sqrt(3) x_ab
+#      M^Q(a,b) =  x_ab + sqrt(3) r_ab   ->   aX[1,2] = -x_ab - sqrt(3) r_ab
 const ALPHA = exp(-2π * im / 3)
 
-# aR, aX of eq. (31); the trailing 2·VNOM divisor converts to the magnitude form used
-# by the voltage-drop constraint of eq. (32).
+# aR, aX of eq. (32) — minus the M^P, M^Q of Sankur et al. (22)–(23). The trailing
+# 2·VNOM divisor converts to the magnitude form the drop constraint of eq. (33) uses.
 function drop_matrices(Z::Matrix{ComplexF64})
     aR = zeros(3, 3)
     aX = zeros(3, 3)
@@ -223,7 +234,7 @@ model = Model(Gurobi.Optimizer)
 set_optimizer_attribute(model, "MIPGap", MIP_GAP)
 set_optimizer_attribute(model, "OutputFlag", 0)
 
-@variable(model, VLIM[1] <= v[1:nb, PHASES, 1:T] <= VLIM[2], start = VNOM)  # limits: eq. (32)
+@variable(model, VLIM[1] <= v[1:nb, PHASES, 1:T] <= VLIM[2], start = VNOM)  # limits: eq. (33)
 @variable(model, P[1:nbr, PHASES, 1:T])
 @variable(model, Q[1:nbr, PHASES, 1:T])
 @variable(model, Pg[PHASES, 1:T])
@@ -233,16 +244,16 @@ set_optimizer_attribute(model, "OutputFlag", 0)
 @variable(model, 0 <= PVC[1:npv, 1:T])
 
 islack = bus_id[SLACK]
-# slack reference — first line of eq. (32)
+# slack reference — first line of eq. (33)
 @constraint(model, [φ in PHASES, t in 1:T], v[islack, φ, t] == VNOM)
 
-# ---- LinDist3Flow voltage drop, eq. (31) in the magnitude form of eq. (32) ------------
+# ---- voltage drop: eq. (31)–(32) here, eq. (21) of Sankur et al. ---------------------
 @constraint(model, [k in 1:nbr, φ in PHASES, t in 1:T],
     v[bus_id[BR[k].to], φ, t] == v[bus_id[BR[k].from], φ, t]
         - sum(AR[k][φ, ψ] * P[k, ψ, t] + AX[k][φ, ψ] * Q[k, ψ, t] for ψ in PHASES))
 
-# ---- power balance per bus and phase, eq. (32) — losses neglected, which is the
-#      whole of the linearisation --------------------------------------------------------
+# ---- power balance per bus and phase: eq. (33) here, eq. (20) of Sankur et al. —
+#      losses neglected, which is the whole of the linearisation ------------------------
 out_br = [Int[] for _ in 1:nb]
 in_br  = [Int[] for _ in 1:nb]
 for (k, br) in enumerate(BR)
