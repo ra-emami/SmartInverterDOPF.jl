@@ -101,5 +101,10 @@ needs an NLP solver such as [Ipopt](https://github.com/jump-dev/Ipopt.jl).
 
 ## Citing
 
-If this material is useful in your work, please cite the papers it builds on, listed in
-the tutorial's [References](@ref) section.
+If this material is useful in your work, please cite this repository:
+
+> *SmartInverterDOPF.jl — embedding IEEE 1547 Volt-VAr droop curves into distribution
+> optimal power flow.* <https://github.com/ra-emami/SmartInverterDOPF.jl>
+
+and, alongside it, the papers it builds on, listed in the tutorial's
+[References](@ref) section.

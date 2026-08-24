@@ -1,6 +1,5 @@
 # Embedding the Volt-VAr droop into a distribution OPF
 
-
 A smart inverter does not accept a reactive-power set-point. It follows a Volt-VAr
 curve: it measures its own terminal voltage and decides, on its own, how much reactive
 power to inject or absorb. An optimal power flow that ignores that curve will happily
