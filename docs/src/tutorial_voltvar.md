@@ -2497,12 +2497,7 @@ optimised, not merely respected
 linearized power flow model for optimization in unbalanced distribution systems,"
 *arXiv:1606.04492*, 2016.
 [arXiv:1606.04492](https://arxiv.org/abs/1606.04492)
-— **LinDist3Flow**, the multiphase linearisation used for the three-phase case. Its exact
-Dist3Flow equations, its Eqs. (14)–(17), become LinDist3Flow under assumptions **A1**
-(constant inter-phase voltage ratios) and **A2** (constant loss terms); at nominal
-voltages and zero losses they reduce to its Eqs. (20)–(23), which is what this page
-implements. Equation numbers written as "Eq. (n) of [12]" are that paper's; unqualified
-numbers are this page's own.
+— **LinDist3Flow**, the multiphase linearisation used for the three-phase case.
 
 ```@raw html
 <a id="ref-13"></a>
