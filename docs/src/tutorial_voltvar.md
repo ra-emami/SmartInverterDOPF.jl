@@ -218,20 +218,21 @@ Pkg.add(["JuMP", "Gurobi", "Ipopt"])
 Pkg.add(url = "https://github.com/ra-emami/SmartInverterDOPF.jl")
 ```
 
-!!! note "Solvers used here"
+!!! Note "Solvers used here"
     Everything on this page was produced with **Gurobi** for the two mixed-integer
     encodings and **Ipopt** for the nonlinear one. Gurobi is commercial, but
-    [free for academic users](https://www.gurobi.com/academia/academic-program-and-licenses/).
+    [free for academic users](https://www.gurobi.com/academia/academic-program-and-licenses/). 
+    Ipopt is open-source.
 
     We also tried the open-source MILP solvers **HiGHS** and **GLPK** on this model.
-    Neither worked out — one returned an infeasible status inside the
+    Neither worked out. One returned an infeasible status inside the
     successive-linearisation loop, the other was too slow to finish. Use Gurobi.
 
-    If no MILP licence is available at all, the `:heaviside` encoding needs **only
-    Ipopt**, which is open source, and reaches the same answer — a practical reason to
-    care about an integer-free formulation quite apart from the theory.
+    If no MILP solver is available at all, the `:heaviside` encoding needs **only
+    Ipopt**, which is open-source, and reaches the same answer. This could be a practical 
+    reason to consider an integer-free formulation.
 
-## Why the curve has to live inside the OPF
+## Why the curve has to be embedded in the OPF
 
 IEEE 1547-2018 [[1]](#ref-1) requires every interconnecting distributed energy resource (DER) to be
 capable
