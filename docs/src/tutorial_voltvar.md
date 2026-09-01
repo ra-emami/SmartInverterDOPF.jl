@@ -23,7 +23,7 @@ sci(x)    = @sprintf("%.2e", x)
 md(rows...) = Markdown.parse(join(rows, "\n"))
 
 # Table builders. These live here rather than in the visible blocks so that the page
-# shows tables, not the string-mangling that produces them — while still deriving every
+# shows tables, not the string-mangling that produces them, while still deriving every
 # number from the committed results rather than hard-coding it.
 breakpoint_table() = md(
     "| | " * join(["``V^{\\text{bp}}_$i``" for i in 1:6], " | ") * " |",
