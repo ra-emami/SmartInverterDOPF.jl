@@ -1,15 +1,8 @@
 # Embedding the Volt-VAr droop into a distribution OPF
 
-A smart inverter does not accept a reactive-power set-point. It follows a Volt-VAr
-curve: it measures its own terminal voltage and decides, on its own, how much reactive
-power to inject or absorb. An optimal power flow that ignores that curve will happily
-return a reactive dispatch the inverter is never going to deliver.
+A smart inverter does not accept a reactive-power set-point as an input. Rather, it follows a Volt-VAr curve: it measures its own terminal voltage and decides, on its own, how much reactive power to inject or absorb. An optimal power flow (OPF) problem that ignores the curve will return a reactive dispatch that could be unsuitable at the local inverter controller level.
 
-This tutorial shows three ways to put the curve *inside* the optimisation, so that every
-dispatch point the solver returns is one the inverter would actually produce. All three
-are exact — none of them approximates the curve — and on the case study below all three
-return the same answer. What separates them is the solver technology they demand and how
-they scale.
+This tutorial shows three ways to embed the curve into the OPF formulation, so that every dispatch point the solver returns is one that the inverter would actually produce. All three are exact formulations of the Volt-VAr curve and on the case study below, all three return the same answer. What separates them is the solver technology they demand and how they scale.
 
 ```@setup tut
 using JSON3, Plots, Printf, Markdown
