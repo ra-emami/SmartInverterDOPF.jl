@@ -218,7 +218,7 @@ Pkg.add(["JuMP", "Gurobi", "Ipopt"])
 Pkg.add(url = "https://github.com/ra-emami/SmartInverterDOPF.jl")
 ```
 
-!!! Note "Solvers used here"
+!!! note "Solvers used here"
     Everything on this page was produced with **Gurobi** for the two mixed-integer
     encodings and **Ipopt** for the nonlinear one. Gurobi is commercial, but
     [free for academic users](https://www.gurobi.com/academia/academic-program-and-licenses/). 
