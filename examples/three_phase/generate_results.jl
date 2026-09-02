@@ -4,15 +4,15 @@
 #
 # Each of the six shipped scripts is executed in its own module and its results are
 # harvested, so the numbers in the documentation come from exactly the code a reader
-# runs — there is no second copy of the model here to drift out of step.
+# runs, and there is no second copy of the model here to drift out of step.
 #
 # Writes docs/src/assets/results/threephase/
-#   case.json                                     — feeder, fleet and droop description
-#   {lambda,bigm,heaviside}.json                  — LinDist3Flow host
-#   iva_{lambda,bigm,heaviside}.json              — IVACOPF host
+#   case.json                                     : feeder, fleet and droop description
+#   {lambda,bigm,heaviside}.json                  : LinDist3Flow host
+#   iva_{lambda,bigm,heaviside}.json              : IVACOPF host
 #
 # Set TP_HOSTS=lindist3flow or TP_HOSTS=ivacopf to regenerate only one family.
-# case.json is rewritten only when absent — delete it to refresh the case description.
+# case.json is rewritten only when absent; delete it to refresh the case description.
 
 using JSON3, Printf
 
@@ -164,7 +164,7 @@ end
 
 # ---- run one host family ------------------------------------------------------------------
 # `run_script` includes each script, so every module access afterwards goes through
-# `Base.invokelatest` — see the note on `emit`.
+# `Base.invokelatest`; see the note on `emit`.
 function run_family(prefix, host)
     mods = Dict{String,Module}()
     for t in TAGS

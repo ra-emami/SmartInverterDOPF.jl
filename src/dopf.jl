@@ -18,7 +18,7 @@ Outcome of [`solve_dopf`](@ref).
 
 Two fields read differently under `host = :lindistflow`, which has no outer loop:
 `iterations` holds a single entry with `residual = 0.0`, and `converged` is always `true`
-because there is nothing to converge — the model is linear and solved once. `Ploss` is
+because there is nothing to converge: the model is linear and solved once. `Ploss` is
 then a post-hoc estimate `Σ R(P² + Q²)/v²` from the solved flows rather than a modelled
 quantity, since LinDistFlow drops losses from the power balance.
 """
@@ -47,11 +47,11 @@ the Volt-VAr droop encoded by `method` (`:bigm`, `:lambda` or `:heaviside`).
 
 `host` selects the network model, and the droop encoding is identical in both:
 
-- `:ivacopf` (default) — current-voltage AC-OPF. The AC power flow enters through two
+- `:ivacopf` (default): current-voltage AC-OPF. The AC power flow enters through two
   bilinear identities, the `v·I` power balance and the `|I|²` loss, which are linearised
   about the previous iterate and refreshed until the residual of the *exact* loss
   identity falls below `tol`. Near-exact, at the cost of an outer loop.
-- `:lindistflow` — the linearised branch-flow model: losses dropped from the balance and
+- `:lindistflow`: the linearised branch-flow model, with losses dropped from the balance and
   the voltage drop taken as `-(R·P + X·Q)/Vnom`. Wholly linear, solved **once**, so
   `max_iter` and `tol` are ignored. Much cheaper, at the cost of accuracy. `Ploss` is
   then a post-hoc estimate (see [`DOPFResult`](@ref)).
@@ -320,7 +320,7 @@ end
 # backward/forward sweep, and return it in the form the IVACOPF linearisation expects.
 #
 # The sweep solves the true AC power flow for the given injections, so the resulting
-# point satisfies Ohm's law and KCL exactly — unlike the LinDistFlow solution it is
+# point satisfies Ohm's law and KCL exactly, unlike the LinDistFlow solution it is
 # derived from, which satisfies neither. That is the whole value of it as a starting
 # point: `Pdg`/`Qdg` supply a sensible *dispatch*, and the sweep turns it into a
 # physically consistent *state*.
@@ -374,7 +374,7 @@ function _sweep_state(c::Case, Pdg::Array{Float64,3}, Qdg::Array{Float64,3})
 end
 
 # The linearised branch-flow (LinDistFlow) host. Same droop module, same inverter
-# constraints, same objective — only the network model differs, and there is no outer
+# constraints, same objective; only the network model differs, and there is no outer
 # loop because nothing in it is nonlinear.
 #
 # Building and solving are split so the model can be inspected without a solver licence.
@@ -475,7 +475,7 @@ function _solve_lindistflow(c::Case, optimizer; kwargs...)
         error("LinDistFlow solve terminated with status $status")
 
     # Losses are not in the model. This is the standard post-hoc estimate from the
-    # solved flows, reported so the field means something — it is not a model quantity.
+    # solved flows, reported so the field means something. It is not a model quantity.
     Ploss = sum(R[(i,j)] * (value(Pbr[(i,j),h,m])^2 + value(Qbr[(i,j),h,m])^2) /
                 value(v[i,h,m])^2
                 for (i,j) in BRANCH_SET, h in HOUR_SET, m in QUARTER_SET)

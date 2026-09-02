@@ -1,7 +1,7 @@
 using SmartInverterDOPF
 using JuMP
 using Test
-using HiGHS   # model construction only — see the LinDistFlow testset
+using HiGHS   # model construction only; see the LinDistFlow testset
 using Statistics: mean
 using Ipopt
 
@@ -141,7 +141,7 @@ const CASE = load_case()
     end
 
     @testset "LinDistFlow host builds" begin
-        # Structure only — no solve, so this needs no solver licence. (Neither HiGHS nor
+        # Structure only, no solve, so this needs no solver licence. (Neither HiGHS nor
         # GLPK completes this model; see the solver note in the documentation.)
         nsteps = 24 * 4
         # the MILP encodings build against an MILP solver, the NLP one against Ipopt
@@ -154,7 +154,7 @@ const CASE = load_case()
                     attributes = Dict{String,Any}())
 
             # five binaries per inverter per time step for the MILP encodings, none for
-            # the Heaviside one — the same counts the IVACOPF host produces, because the
+            # the Heaviside one, the same counts the IVACOPF host produces, because the
             # droop block is shared verbatim between the two hosts
             @test count(is_binary, all_variables(b.model)) == want_bin * ndg(CASE) * nsteps
 

@@ -9,6 +9,10 @@ julia --project=. -e 'using Pkg; Pkg.develop(PackageSpec(path="../..")); Pkg.ins
 julia --project=. ivacopf_lambda.jl
 ```
 
+The first command installs everything this folder's `Project.toml` lists: the solvers,
+`Printf`, and the package itself. Every package a script names on a `using` line has to
+be installed that way before it can be used.
+
 | | Big-M | Lambda / SOS2 | Heaviside |
 |:--|:--|:--|:--|
 | **IVACOPF** | [`ivacopf_bigm.jl`](ivacopf_bigm.jl) | [`ivacopf_lambda.jl`](ivacopf_lambda.jl) | [`ivacopf_heaviside.jl`](ivacopf_heaviside.jl) |
@@ -20,7 +24,7 @@ NLP solver (Ipopt, open source). The IVACOPF scripts pass `warm_start = :lindist
 which seeds the linearisation from the linear host and roughly halves the passes.
 
 Each script prints the model size, the solve, the curtailed energy, the voltage range, and
-the check that matters — that every optimised operating point lies on the droop curve.
+the check that matters: that every optimised operating point lies on the droop curve.
 
 The model itself lives in the package; these are thin wrappers around `solve_dopf`. See the
 [tutorial](https://ra-emami.github.io/SmartInverterDOPF.jl/dev/tutorial_voltvar/) for the

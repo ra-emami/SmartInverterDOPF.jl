@@ -1,6 +1,6 @@
 # =====================================================================================
 #  Volt-VAr droop in a distribution OPF
-#  HOST   : IVACOPF — current-voltage AC-OPF, successively linearised
+#  HOST   : IVACOPF, a current-voltage AC-OPF, successively linearised
 #  DROOP  : Heaviside (NLP, solved with Ipopt)
 #
 #  IEEE 33-bus feeder, 24 h at 15-minute resolution, three PV smart inverters at buses

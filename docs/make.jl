@@ -2,7 +2,7 @@ using Documenter
 using SmartInverterDOPF
 
 # The tutorial is built from precomputed results committed under
-# docs/src/assets/results/, so no optimisation solver is needed here — the example
+# docs/src/assets/results/, so no optimisation solver is needed here: the example
 # blocks only read JSON and draw figures. Regenerate those results with
 #     julia --project=scripts scripts/generate_results.jl
 ENV["GKSwstype"] = "100"          # headless GR backend

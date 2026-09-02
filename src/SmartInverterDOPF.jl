@@ -1,8 +1,8 @@
 """
     SmartInverterDOPF
 
-Embedding the IEEE 1547 Volt-VAr (Q-V) droop curve of smart inverters into a
-distribution optimal power flow.
+Modeling smart inverters in distribution optimal power flow, by embedding the
+IEEE 1547 Volt-VAr (Q-V) droop curve of each inverter into the OPF itself.
 
 The package provides two distribution OPF host models and three interchangeable
 encodings of the droop law, chosen independently of one another.
@@ -23,7 +23,7 @@ Host models (`host`):
 | host | model | accuracy | solve |
 |:--|:--|:--|:--|
 | `:ivacopf` (default) | current-voltage AC-OPF | very accurate, near-exact AC | iterative successive linearisation |
-| `:lindistflow` | linearised branch flow | approximate — losses dropped | run once, much faster |
+| `:lindistflow` | linearised branch flow | approximate: losses dropped | run once, much faster |
 
 ```julia
 using SmartInverterDOPF, Gurobi

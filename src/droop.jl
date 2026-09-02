@@ -60,11 +60,11 @@ end
 Attach the Volt-VAr law to `model`, tying each inverter's reactive output `Qdg[d,h,m]`
 to its terminal voltage `v[d,h,m]`. `method` selects the encoding:
 
-- `:bigm` — one binary per segment activates that segment's voltage window and its
+- `:bigm`: one binary per segment activates that segment's voltage window and its
   affine law. Mixed-integer linear.
-- `:lambda` — the operating point is a convex combination of the breakpoints, with
+- `:lambda`: the operating point is a convex combination of the breakpoints, with
   SOS2 logic forcing the two active weights to be adjacent. Mixed-integer linear.
-- `:heaviside` — segment masks built from unit steps, summed into one closed-form
+- `:heaviside`: segment masks built from unit steps, summed into one closed-form
   algebraic expression. Integer-free, but non-smooth, so it needs an NLP solver.
 
 All three describe exactly the same curve and, given the same host model, return the

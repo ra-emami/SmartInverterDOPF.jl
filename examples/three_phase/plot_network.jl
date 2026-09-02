@@ -2,7 +2,7 @@
 #
 # The feeder is 194 buses but only ~40 of them are interesting: the rest are degree-2
 # points in the middle of a cable run. This collapses those chains, so what is drawn is
-# the source, every branch point, every load, every PV site and every dead end — joined
+# the source, every branch point, every load, every PV site and every dead end, joined
 # by edges whose horizontal length is the real electrical distance.
 #
 #   julia --project=. plot_network.jl
@@ -54,7 +54,7 @@ for (_, ld) in pairs(net.load)
     loadkW[b] = get(loadkW, b, 0.0) + Float64(ld.p_nom[1]) / 1e3
     loadph[b] = φ
 end
-# PV sites and their class — the same placement and class rotation as the OPF script
+# PV sites and their class: the same placement and class rotation as the OPF script
 const PV_CLASSES = (("A", 3.0), ("B", 5.0), ("C", 8.0), ("D", 12.0))
 PVPH  = Dict{String,Int}()      # bus → phase
 PVCLS = Dict{String,Int}()      # bus → class index
@@ -141,7 +141,7 @@ for ci in eachindex(PV_CLASSES)                # PV + SI, coloured and sized by 
     isempty(bs) && continue
     scatter!(p, [DIST[b] for b in bs], [Y[b] for b in bs],
              m = :star5, ms = CLSMS[ci], mc = CLSCOL[ci], msc = :black,
-             label = "PV + SI, class $(PV_CLASSES[ci][1]) — $(PV_CLASSES[ci][2]) kW")
+             label = "PV + SI, class $(PV_CLASSES[ci][1]), $(PV_CLASSES[ci][2]) kW")
 end
 for (b, ci) in PVCLS                           # bus number and phase beside each star
     annotate!(p, DIST[b] + 0.005, Y[b],

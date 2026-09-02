@@ -1,8 +1,8 @@
 # Three-phase Volt-VAr droop in a distribution OPF
 
 The three-phase counterpart of the single-phase 33-bus case: a real unbalanced LV feeder,
-**all three droop encodings**, and **two network models** — a linear one and a near-exact
-one — so that what the encoding is responsible for can be told apart from what the network
+**all three droop encodings**, and **two network models**, a linear one and a near-exact
+one, so that what the encoding is responsible for can be told apart from what the network
 model is.
 
 | host | scripts | model | solve |
@@ -10,7 +10,9 @@ model is.
 | **LinDist3Flow** | `LinDist3Flow_*.jl` | multiphase linearised branch flow (Sankur et al.) | one pass |
 | **IVACOPF** | `IVACOPF3Ph_*.jl` | three-phase current-voltage AC-OPF (Soltani, Khorsand & Ma) | successive linearisation, iterated |
 
-Run from this directory:
+Run from this directory. The first line installs everything the scripts use, JuMP, JSON3,
+Plots and the solvers, from this folder's `Project.toml`; a package cannot be `using`-ed
+before it has been added:
 
 ```bash
 julia --project=. -e "using Pkg; Pkg.instantiate()"
@@ -33,7 +35,7 @@ julia --project=. scalability.jl                # the large-feeder sweep
 [three-phase section of the tutorial](https://ra-emami.github.io/SmartInverterDOPF.jl/dev/tutorial_voltvar/#Three-phases)
 is built from. `TP_HOSTS=ivacopf` or `TP_HOSTS=lindist3flow` regenerates one family only.
 
-The six scripts share their skeleton **verbatim** — data, PV placement, inverter
+The six scripts share their skeleton **verbatim**: data, PV placement, inverter
 constraints, objective, verification, results and figures are byte-identical. Within a
 host they differ only in the fenced `DROOP BLOCK` (and Heaviside swaps Gurobi for Ipopt);
 across hosts they differ only in the network model. Diff any two to see exactly what one
@@ -58,7 +60,7 @@ Same feeder, same inverters, same objective:
 Within each host the three encodings agree to the digit on every physical quantity, and
 every dispatch point lies on the droop curve of its own class. **That is a property of the
 encodings.** Across the two hosts they do not agree, and that is a property of the network
-model — which the audit below settles.
+model, which the audit below settles.
 
 ## Which host to believe
 
@@ -72,20 +74,20 @@ dispatch with a full three-phase backward/forward sweep and reports the gap:
 | IVACOPF | 1.9e-11 p.u. | 2.8e-11 p.u. | 0 | 0.9922 – 1.0204 p.u. |
 
 LinDist3Flow's voltages are off by about a milli-per-unit, and because the droop is
-steep — a full swing of q̄ across 0.02 p.u. on the upper segment — that turns into a
+steep, a full swing of q̄ across 0.02 p.u. on the upper segment, that turns into a
 reactive-power error of a few per cent of inverter rating. The inverters would not deliver
 the VArs it dispatched. IVACOPF reproduces the exact AC solution to round-off, so its
 dispatch survives the transfer intact.
 
 Neither host violates a voltage limit on this feeder, so the disagreement here is confined
-to the droop residual — unlike the single-phase 33-bus case, where LinDistFlow additionally
+to the droop residual, unlike the single-phase 33-bus case, where LinDistFlow additionally
 pushes 17 time steps below the lower limit.
 
 **Use LinDist3Flow for a fast first look; use IVACOPF for anything quantitative.**
 
 ## What the linearisation loop does
 
-IVACOPF's two nonlinear relations — the `v·I` power balance and the voltage magnitude —
+IVACOPF's two nonlinear relations, the `v·I` power balance and the voltage magnitude,
 are expanded about the previous iterate and refreshed until the paper's own error metrics
 clear a tolerance. Those metrics are measured against the **true** nonlinear relations, not
 against the model's internal residual, which is what makes the converged point a genuine
@@ -97,8 +99,8 @@ power-flow solution:
 | 2 | 88.3 s | 1.707866 | 4.7e-06 | 1.6e-06 | 2.8e-07 |
 | 3 | 102.0 s | 1.707783 | 1.0e-09 | 3.3e-12 | 7.2e-13 |
 
-- **MAPB / MRPB** — max absolute active / reactive power-balance error, eqs (18)–(19)
-- **MVM** — max voltage-magnitude error, eq (20)
+- **MAPB / MRPB**: max absolute active / reactive power-balance error, eqs (18)–(19)
+- **MVM**: max voltage-magnitude error, eq (20)
 
 Three passes, roughly three orders of magnitude per pass. By default the loop starts from
 an exact sweep at full PV and zero VArs rather than the paper's flat start
@@ -108,9 +110,9 @@ an exact sweep at full PV and zero VArs rather than the paper's flat start
 
 | | |
 |:--|:--|
-| feeder | `network_5_Feeder_2` — real ENWL LV feeder, Kron-reduced to three wires |
+| feeder | `network_5_Feeder_2`, a real ENWL LV feeder, Kron-reduced to three wires |
 | size | 194 buses, 193 lines, 489 m, 415/240 V |
-| loads | 18 single-phase, split **4 / 5 / 9** across phases (3.7 / 6.0 / 7.7 kW) — genuinely unbalanced |
+| loads | 18 single-phase, split **4 / 5 / 9** across phases (3.7 / 6.0 / 7.7 kW), genuinely unbalanced |
 | PV | **12 smart inverters in 4 size classes**, 84 kW total, at the electrically farthest load buses, 4 per phase |
 | horizon | 24 h at 15-minute resolution (96 steps), residential load shape, clear-sky irradiance |
 | hosts | LinDist3Flow (phase-coupled linear branch flow) and IVACOPF (three-phase current-voltage AC-OPF) |
@@ -118,13 +120,13 @@ an exact sweep at full PV and zero VArs rather than the paper's flat start
 | objective | minimise total PV curtailment |
 
 The point of the feeder choice is the unbalance. Loads are single-phase and unevenly
-distributed, so the three phases genuinely diverge — which is the only reason to model
+distributed, so the three phases genuinely diverge, which is the only reason to model
 three phases at all.
 
 ## The twelve smart inverters
 
-Four classes. Since `q̄ = S_max`, each class follows a **different droop curve** — same
-breakpoint voltages, four saturation levels — which is what makes the dispatch figure
+Four classes. Since `q̄ = S_max`, each class follows a **different droop curve**: same
+breakpoint voltages, four saturation levels, which is what makes the dispatch figure
 worth looking at.
 
 | class | P rated | S max | q̄ | q̄ (p.u.) | sites |
@@ -154,9 +156,9 @@ voltage range          0.9923 – 1.0207   0.9922 – 1.0204 p.u.
 peak line loading          no I variable      20.4 % of i_max
 ```
 
-Each script writes three figures, suffixed by host and encoding — for example
+Each script writes three figures, suffixed by host and encoding: for example
 `droop_dispatch_3ph.png` (LinDist3Flow + Lambda), `droop_dispatch_3ph_bigm.png`,
-`droop_dispatch_3ph_iva.png` (IVACOPF + Lambda), `droop_dispatch_3ph_iva_heaviside.png` —
+`droop_dispatch_3ph_iva.png` (IVACOPF + Lambda) and `droop_dispatch_3ph_iva_heaviside.png`,
 plus `network_schematic.png` from `plot_network.jl`.
 
 ## The formulations
@@ -192,8 +194,8 @@ arXiv:1606.04492, 2016, [arXiv:1606.04492](https://arxiv.org/abs/1606.04492).
 ### IVACOPF
 
 The network in rectangular current-voltage coordinates. Ohm's law and KCL are then
-**exactly linear**, mutual coupling and all — no rotation operator, no transposition
-assumption, no near-balance:
+**exactly linear**, mutual coupling and all, with no rotation operator, no transposition
+assumption and no near-balance:
 
 ```
 (4)–(5)   v_n^{re,φ} − v_m^{re,φ} = Σ_p ( R[φ,p]·I^{re,p} − X[φ,p]·I^{im,p} )
@@ -211,8 +213,8 @@ lines, which is the structural point of the formulation:
 (12)      v_n^φ = sqrt( (v^{re,φ})² + (v^{im,φ})² )
 ```
 
-Each is replaced by its first-order Taylor expansion about the previous iterate — (15)–(16)
-and (17) — and the loop repeats until MAPB, MRPB and MVM clear `TP_TOL`. Because the line
+Each is replaced by its first-order Taylor expansion about the previous iterate, (15)–(16)
+and (17), and the loop repeats until MAPB, MRPB and MVM clear `TP_TOL`. Because the line
 current is a decision variable, the thermal limit (13) is writable directly; it is offered
 as a polygon inscribing the circle so the model stays an MILP, and left off by default
 (`TP_IMAXSEG=0`) because peak flow here is about a fifth of the conductor rating.
@@ -241,12 +243,12 @@ can share one skeleton, and why the results agree within each host to the digit.
 
 At the top of any script:
 
-- `N_PV_PER_PHASE` — sites per phase. With four classes, four per phase gives each phase
+- `N_PV_PER_PHASE`: sites per phase. With four classes, four per phase gives each phase
   one of each; other counts still cycle through the classes.
-- `PV_CLASSES` — the class names and ratings. Add or remove entries freely; the placement,
+- `PV_CLASSES`: the class names and ratings. Add or remove entries freely; the placement,
   the droop curves and the figure all follow. Setting every class to the same rating
   collapses the four curves back to one.
-- `VBP`, `QSHAPE` — the droop curve. `QSHAPE` is a free vector, so asymmetric curves (for
+- `VBP`, `QSHAPE`: the droop curve. `QSHAPE` is a free vector, so asymmetric curves (for
   example AS/NZS 4777.2's −0.6 / +0.44) work without code changes.
 - `VLIM`, `SBASE_KVA`, `MIP_GAP`.
 - IVACOPF only: `MAX_ITER`, `TOL`, `WARMSTART`, `IMAX_SEG`.
@@ -259,17 +261,17 @@ or horizon without editing anything:
 | `TP_CASE` | `network_5_Feeder_2` | ENWL feeder to load |
 | `TP_STEPS` | `96` | time steps in the day |
 | `TP_NPV` | `4` | smart inverters per phase |
-| `TP_WARMSTART` | `sweep` | IVACOPF only — `flat` for the paper's flat start |
-| `TP_TOL` | `1e-6` | IVACOPF only — stop tolerance on max(MAPB, MRPB, MVM) |
-| `TP_MAXITER` | `15` | IVACOPF only — pass limit |
-| `TP_IMAXSEG` | `0` | IVACOPF only — sides of the polygon enforcing (13); 0 disables it |
+| `TP_WARMSTART` | `sweep` | IVACOPF only: `flat` for the paper's flat start |
+| `TP_TOL` | `1e-6` | IVACOPF only: stop tolerance on max(MAPB, MRPB, MVM) |
+| `TP_MAXITER` | `15` | IVACOPF only: pass limit |
+| `TP_IMAXSEG` | `0` | IVACOPF only: sides of the polygon enforcing (13); 0 disables it |
 
 ## A trap worth flagging
 
-The validation sweep — and IVACOPF's slack reference and flat start — must use a properly
+The validation sweep, and IVACOPF's slack reference and flat start, must use a properly
 rotated three-phase set (1∠0°, 1∠−120°, 1∠+120°). Seeding all three phases at 1∠0° is
 silent and expensive: the mutual impedance terms then add instead of largely cancelling,
-and the sweep reports roughly **twice** the true voltage deviation — which looks exactly
+and the sweep reports roughly **twice** the true voltage deviation, which looks exactly
 like the linear host being badly wrong. It cost me a detour; the comments in `sweep_state()`
 and at `V0` mark the spot.
 
@@ -286,7 +288,7 @@ and at `V0` mark the spot.
 ## Scalability
 
 `scalability.jl` runs the three LinDist3Flow encodings on both feeders at the full 96-step
-horizon — and, for any run that does not finish, again at a reduced horizon — then writes
+horizon and, for any run that does not finish, again at a reduced horizon, then writes
 `docs/src/assets/results/threephase/scalability.json`. It sweeps the linear host because
 that is what isolates the *encodings'* scaling: one solve each, no outer loop. IVACOPF
 multiplies every row by its pass count on top of a larger model per pass; its binary counts
@@ -311,4 +313,4 @@ Electricity North West's LV Network Solutions data.
 
 **Licence: CC BY 4.0**, commercial use permitted, attribution required. Note that the
 per-case `meta.license` stamp present on the curated `benchmarks/` cases is *absent* on
-these `output/` files — the licence comes from the repository's README table.
+these `output/` files; the licence comes from the repository's README table.

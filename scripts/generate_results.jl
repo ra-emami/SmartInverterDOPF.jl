@@ -6,7 +6,7 @@
 #
 # Writes one JSON per method into docs/src/assets/results/. The documentation reads
 # those files and redraws every figure and table at build time, so building the docs
-# needs no optimisation solver at all — only Plots and JSON3.
+# needs no optimisation solver at all, only Plots and JSON3.
 #
 # NOTE: use Gurobi. It is free for academic users (see the tutorial's solver note) and
 # fast on this model, and the committed results are generated with it. The HiGHS and GLPK

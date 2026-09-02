@@ -1,6 +1,6 @@
 # =====================================================================================
 #  Volt-VAr droop in a distribution OPF
-#  HOST   : LinDistFlow — linearised branch flow, solved once
+#  HOST   : LinDistFlow, a linearised branch-flow model, solved once
 #  DROOP  : Big-M (MILP, solved with Gurobi)
 #
 #  IEEE 33-bus feeder, 24 h at 15-minute resolution, three PV smart inverters at buses

@@ -1,13 +1,13 @@
 # =====================================================================================
 #  Three-phase Volt-VAr droop in a distribution OPF
-#  HOST   : LinDist3Flow  — the three-phase (multiphase) LinDistFlow linearisation
+#  HOST   : LinDist3Flow, the three-phase (multiphase) LinDistFlow linearisation
 #                          of Sankur, Dobbe, Stewart, Callaway & Arnold,
-#                          arXiv:1606.04492 (2016) — their eqs. (20)–(23)
-#  DROOP  : Big-M          — one binary per segment, exact product linearisation
+#                          arXiv:1606.04492 (2016), their eqs. (20)–(23)
+#  DROOP  : Big-M          (one binary per segment, exact product linearisation)
 #
 #  Test system : network_5_Feeder_2, a real 415/240 V LV feeder from the ENWL dataset,
 #                Kron-reduced to three wires. 194 buses, 193 lines, 489 m, and 18
-#                single-phase loads spread 4 / 5 / 9 across phases 1 / 2 / 3 — so the
+#                single-phase loads spread 4 / 5 / 9 across phases 1 / 2 / 3, so the
 #                network is genuinely unbalanced, which is the point of modelling it
 #                three-phase at all.
 #  Horizon     : 24 h at 15-minute resolution (96 steps), residential load shape,
@@ -15,8 +15,8 @@
 #  Objective   : minimise total PV curtailment over the day.
 #
 #  This is the three-phase counterpart of the single-phase 33-bus / LinDistFlow / Lambda
-#  case. The droop block is unchanged from the single-phase version — it only ever needs
-#  a voltage variable per inverter — so everything new here is in the network model.
+#  case. The droop block is unchanged from the single-phase version: it only ever needs
+#  a voltage variable per inverter, so everything new here is in the network model.
 #
 #  Equation numbers in the comments below are the tutorial's:
 #  https://ra-emami.github.io/SmartInverterDOPF.jl/dev/tutorial_voltvar/#LinDist3Flow:-the-linear-host
@@ -34,13 +34,13 @@ const DATA   = joinpath(@__DIR__, "data")
 const N_PV_PER_PHASE = parse(Int, get(ENV, "TP_NPV", "4"))          # PV sites per phase, placed at the electrically farthest load buses
 # Four inverter classes. Each phase receives one of each, so size is not confounded with
 # phase or with distance from the substation. Because q̄ = S_max, the four classes follow
-# four *different* droop curves — same breakpoint voltages, four saturation levels.
+# four *different* droop curves: same breakpoint voltages, four saturation levels.
 const PV_CLASSES = (("A — 3 kW",  3.0),
                     ("B — 5 kW",  5.0),
                     ("C — 8 kW",  8.0),
                     ("D — 12 kW", 12.0))
 const S_OVER_P       = 1.1       # inverter oversizing: S_max = 1.1 * P_rated
-const VLIM           = (0.95, 1.05)              # bus voltage limits, p.u. — eq. (33)
+const VLIM           = (0.95, 1.05)              # bus voltage limits, p.u.,  eq. (33)
 const VBP            = [0.88, 0.90, 0.97, 1.00, 1.02, 1.10]   # IEEE 1547 breakpoints, p.u.
 const QSHAPE         = [1.0, 1.0, 0.0, 0.0, -1.0, -1.0]       # q / q̄ at each breakpoint
 const SBASE_KVA      = 100.0     # per-phase power base
@@ -143,7 +143,7 @@ end
 #      M^Q(a,b) =  x_ab + sqrt(3) r_ab   ->   aX[1,2] = -x_ab - sqrt(3) r_ab
 const ALPHA = exp(-2π * im / 3)
 
-# aR, aX of eq. (32) — minus the M^P, M^Q of Sankur et al. (22)–(23). The trailing
+# aR, aX of eq. (32): minus the M^P, M^Q of Sankur et al. (22)–(23). The trailing
 # 2·VNOM divisor converts to the magnitude form the drop constraint of eq. (33) uses.
 function drop_matrices(Z::Matrix{ComplexF64})
     aR = zeros(3, 3)
@@ -244,7 +244,7 @@ set_optimizer_attribute(model, "OutputFlag", 0)
 @variable(model, 0 <= PVC[1:npv, 1:T])
 
 islack = bus_id[SLACK]
-# slack reference — first line of eq. (33)
+# slack reference: first line of eq. (33)
 @constraint(model, [φ in PHASES, t in 1:T], v[islack, φ, t] == VNOM)
 
 # ---- voltage drop: eq. (31)–(32) here, eq. (21) of Sankur et al. ---------------------
@@ -252,7 +252,7 @@ islack = bus_id[SLACK]
     v[bus_id[BR[k].to], φ, t] == v[bus_id[BR[k].from], φ, t]
         - sum(AR[k][φ, ψ] * P[k, ψ, t] + AX[k][φ, ψ] * Q[k, ψ, t] for ψ in PHASES))
 
-# ---- power balance per bus and phase: eq. (33) here, eq. (20) of Sankur et al. —
+# ---- power balance per bus and phase: eq. (33) here, eq. (20) of Sankur et al.;
 #      losses neglected, which is the whole of the linearisation ------------------------
 out_br = [Int[] for _ in 1:nb]
 in_br  = [Int[] for _ in 1:nb]
@@ -279,11 +279,11 @@ for (i, g) in enumerate(PV); push!(pv_at[g.bus, g.phase], i); end
     netQ[b, φ, t] == sum(Q[k, φ, t] for k in out_br[b]; init = zero(AffExpr))
                    - sum(Q[k, φ, t] for k in in_br[b];  init = zero(AffExpr)))
 
-# ============================ DROOP BLOCK : Big-M — unchanged from single phase =========
+# ============================ DROOP BLOCK : Big-M, unchanged from single phase ==========
 #  The IEEE 1547 curve of eq. (1), entering the host through eq. (30).
 #  One binary δ per segment activates that segment's voltage window and its affine law.
 #  W2 := δ2·v and W4 := δ4·v are exact product linearisations, valid because δ is binary
-#  and v is bounded — no approximation. The tightest valid big-M here is set by the
+#  and v is bounded, with no approximation. The tightest valid big-M here is set by the
 #  voltage bounds; a loose M only weakens the LP relaxation.
 Mbig = 1.1
 @variable(model, δ[1:5, 1:npv, 1:T], Bin)
@@ -294,13 +294,13 @@ vpv(i, t) = v[PV[i].bus, PV[i].phase, t]        # voltage this inverter actually
 
 @constraint(model, [i in 1:npv, t in 1:T], sum(δ[j, i, t] for j in 1:5) == 1)
 
-# flat segments 1, 3, 5 — the binary only switches on a voltage window
+# flat segments 1, 3, 5: the binary only switches on a voltage window
 for (j, lo, hi) in ((1, 1, 2), (3, 3, 4), (5, 5, 6))
     @constraint(model, [i in 1:npv, t in 1:T], vpv(i, t) >= VBP[lo] - Mbig * (1 - δ[j, i, t]))
     @constraint(model, [i in 1:npv, t in 1:T], vpv(i, t) <= VBP[hi] + Mbig * (1 - δ[j, i, t]))
 end
 
-# sloped segments 2 and 4 — W = δ·v, whose bounds double as the window
+# sloped segments 2 and 4: W = δ·v, whose bounds double as the window
 for (j, W, lo, hi) in ((2, W2, 2, 3), (4, W4, 4, 5))
     @constraint(model, [i in 1:npv, t in 1:T], vpv(i, t) - W[i, t] >= -Mbig * (1 - δ[j, i, t]))
     @constraint(model, [i in 1:npv, t in 1:T], vpv(i, t) - W[i, t] <=  Mbig * (1 - δ[j, i, t]))
@@ -308,7 +308,7 @@ for (j, W, lo, hi) in ((2, W2, 2, 3), (4, W4, 4, 5))
     @constraint(model, [i in 1:npv, t in 1:T], W[i, t] <= VBP[hi] * δ[j, i, t])
 end
 
-# the droop law of the active segment — every coefficient constant, so this is linear
+# the droop law of the active segment: every coefficient constant, so this is linear
 @constraint(model, [i in 1:npv, t in 1:T],
     Qdg[i, t] ==
         δ[1, i, t] * PV[i].Smax
@@ -376,7 +376,7 @@ dev = maximum(abs(Qdg_v[i, t] - droop_q(V[PV[i].bus, PV[i].phase, t], PV[i].Smax
 #  implicit ground and zero shunts, so the sweep is exact for these injections.
 function sweep(t)
     # Start from a properly rotated three-phase set: 1∠0°, 1∠−120°, 1∠+120°. Seeding all
-    # three phases at 1∠0° instead is a silent and expensive mistake — the mutual terms
+    # three phases at 1∠0° instead is a silent and expensive mistake: the mutual terms
     # then add rather than largely cancelling, and the sweep reports roughly twice the
     # true voltage deviation.
     V0  = ComplexF64[1, exp(-2π * im / 3), exp(2π * im / 3)]
@@ -421,7 +421,7 @@ gr(size = (900, 520), legend = :topright, framestyle = :box, grid = true, gridal
 hours = range(0, 24 - 24 / T, length = T)
 
 #  One curve per inverter class, drawn in ABSOLUTE p.u. VArs so the four saturation
-#  levels q̄ are visible — normalising by q̄ would collapse them onto a single line and
+#  levels q̄ are visible; normalising by q̄ would collapse them onto a single line and
 #  hide the point. Every "+" is one 15-min dispatch point and must sit on the curve of
 #  its own class.
 CLSCOL = [:seagreen, :orangered, :dodgerblue, :mediumorchid]

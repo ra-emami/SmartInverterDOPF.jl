@@ -5,7 +5,7 @@
 # Runs each encoding on a small and a large real feeder, at the full 96-step horizon, and
 # writes docs/src/assets/results/threephase/scalability.json.
 #
-# Nothing about the model changes between runs — the same three scripts are executed with
+# Nothing about the model changes between runs: the same three scripts are executed with
 # TP_CASE / TP_STEPS / TP_NPV set in the environment. The question being asked is whether
 # the droop encodings survive a twenty-fold larger network, not whether a bespoke
 # formulation can be made to.
@@ -94,13 +94,13 @@ for c in CASES, (tag, script) in SCRIPTS
 
     # A run that does not finish at the full horizon is a scalability result, not a dead
     # end: shrink the day and ask again. That is how the reduced-horizon Heaviside row on
-    # the large feeder is produced, and it is what shows the encoding still *solves* —
-    # reproducing the droop to round-off — once the model is small enough to differentiate.
+    # the large feeder is produced, and it is what shows the encoding still *solves*,
+    # reproducing the droop to round-off, once the model is small enough to differentiate.
     if !r.ok
         for steps in REDUCED_STEPS
             r2 = run_one(script, c.case, c.npv, steps)
             report(tag, c, steps, r2,
-                   "reduced horizon — the 96-step model does not finish")
+                   "reduced horizon; the 96-step model does not finish")
             r2.ok && break
         end
     end

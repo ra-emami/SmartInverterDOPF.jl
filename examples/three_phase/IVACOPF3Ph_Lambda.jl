@@ -1,13 +1,13 @@
 # =====================================================================================
 #  Three-phase Volt-VAr droop in a distribution OPF
-#  HOST   : IVACOPF  — three-phase current-voltage AC-OPF, linearised (Soltani, Khorsand
+#  HOST   : IVACOPF, a three-phase current-voltage AC-OPF, linearised (Soltani, Khorsand
 #                      & Ma, IEEE OJIA 5, 2024, doi:10.1109/OJIA.2024.3367547), solved by
 #                      successive linearisation
-#  DROOP  : Lambda / SOS2 — convex combination of breakpoints, adjacency forced by binaries
+#  DROOP  : Lambda / SOS2 (convex combination of breakpoints, adjacency forced by binaries)
 #
 #  Test system : network_5_Feeder_2, a real 415/240 V LV feeder from the ENWL dataset,
 #                Kron-reduced to three wires. 194 buses, 193 lines, 489 m, and 18
-#                single-phase loads spread 4 / 5 / 9 across phases 1 / 2 / 3 — so the
+#                single-phase loads spread 4 / 5 / 9 across phases 1 / 2 / 3, so the
 #                network is genuinely unbalanced, which is the point of modelling it
 #                three-phase at all.
 #  Horizon     : 24 h at 15-minute resolution (96 steps), residential load shape,
@@ -15,11 +15,11 @@
 #  Objective   : minimise total PV curtailment over the day.
 #
 #  This is the IVACOPF counterpart of LinDist3Flow_Lambda.jl. Same feeder, same fleet,
-#  same droop block — only the network model differs. Where LinDist3Flow drops losses and
+#  same droop block; only the network model differs. Where LinDist3Flow drops losses and
 #  assumes near-balanced voltages, IVACOPF writes the network in rectangular current and
 #  voltage coordinates, where Ohm's law (35) and KCL (36) are *exactly* linear even
-#  with full 3×3 mutual coupling. Only two relations are nonlinear — the v·I power
-#  balance and the voltage magnitude — and both are isolated at the buses and handled by a
+#  with full 3×3 mutual coupling. Only two relations are nonlinear, the v·I power
+#  balance and the voltage magnitude, and both are isolated at the buses and handled by a
 #  Taylor expansion about the previous iterate. The loop repeats until the three error
 #  metrics MAPB / MRPB / MVM clear a tolerance, so what converges is measured against the
 #  *true* nonlinear relations rather than against the approximation.
@@ -40,13 +40,13 @@ const DATA   = joinpath(@__DIR__, "data")
 const N_PV_PER_PHASE = parse(Int, get(ENV, "TP_NPV", "4"))          # PV sites per phase, placed at the electrically farthest load buses
 # Four inverter classes. Each phase receives one of each, so size is not confounded with
 # phase or with distance from the substation. Because q̄ = S_max, the four classes follow
-# four *different* droop curves — same breakpoint voltages, four saturation levels.
+# four *different* droop curves: same breakpoint voltages, four saturation levels.
 const PV_CLASSES = (("A — 3 kW",  3.0),
                     ("B — 5 kW",  5.0),
                     ("C — 8 kW",  8.0),
                     ("D — 12 kW", 12.0))
 const S_OVER_P       = 1.1       # inverter oversizing: S_max = 1.1 * P_rated
-const VLIM           = (0.95, 1.05)              # bus voltage limits, p.u.   — eq. (41)
+const VLIM           = (0.95, 1.05)              # bus voltage limits, p.u.,    eq. (41)
 const VBP            = [0.88, 0.90, 0.97, 1.00, 1.02, 1.10]   # IEEE 1547 breakpoints, p.u.
 const QSHAPE         = [1.0, 1.0, 0.0, 0.0, -1.0, -1.0]       # q / q̄ at each breakpoint
 const SBASE_KVA      = 100.0     # per-phase power base
@@ -125,7 +125,7 @@ nbr = length(BR)
 Rm = [real.(b.Z) for b in BR]
 Xm = [imag.(b.Z) for b in BR]
 
-# Shunt admittances y^{φp} — the Σ y V terms of (34) and (35). The ENWL feeders are
+# Shunt admittances y^{φp}: the Σ y V terms of (34) and (35). The ENWL feeders are
 # supplied Kron-reduced to three wires with zero shunt, so these terms vanish here; they
 # are kept explicit so a dataset that carries them can be dropped in.
 YSH = [zeros(ComplexF64, 3, 3) for _ in BR]
@@ -153,7 +153,7 @@ islack = bus_id[SLACK]
 
 # The three-phase slack reference: 1∠0°, 1∠−120°, 1∠+120°. This is also the flat start of
 # the linearisation, exactly as the paper prescribes. Seeding all three phases at 1∠0°
-# instead is a silent and expensive mistake — the mutual terms then add rather than
+# instead is a silent and expensive mistake: the mutual terms then add rather than
 # largely cancelling.
 const V0 = ComplexF64[1, exp(-2π * im / 3), exp(2π * im / 3)]
 
@@ -271,8 +271,8 @@ end
 # ================================================ 4) the linearisation point (the "∘") ==
 #  Everything marked `_pr` below is a *constant* held from the previous pass, not a
 #  variable. Pass 1 needs somewhere to start:
-#    · flat  — 1∠0°, 1∠−120°, 1∠+120° with all currents zero, as the paper prescribes;
-#    · sweep — an exact power flow at full PV and zero VArs. It costs one sweep per time
+#    · flat  : 1∠0°, 1∠−120°, 1∠+120° with all currents zero, as the paper prescribes;
+#    · sweep : an exact power flow at full PV and zero VArs. It costs one sweep per time
 #              step and is a physically consistent state, which typically halves the
 #              number of passes. This is the three-phase analogue of the package's
 #              `warm_start = :lindistflow`.
@@ -305,7 +305,7 @@ end
 WARMSTART && @printf("\nwarm start: %d exact sweeps in %.1f s\n", T, warm_seconds)
 
 # ==================================================== 5) successive-linearisation loop ==
-# One Gurobi environment, reused by every pass — the licence banner is printed once and
+# One Gurobi environment, reused by every pass: the licence banner is printed once and
 # each rebuild is cheaper than spinning up a fresh environment.
 const GRB_ENV = Gurobi.Env()
 
@@ -347,7 +347,7 @@ for it in 1:MAX_ITER
     @constraint(model, [φ in PHASES, t in 1:T], v_im[islack, φ, t] == imag(V0[φ]))
 
     # ---- line current constraints, eq. (35): exact, linear, fully phase-coupled --------
-    #  V_n − V_m = Z_nm I_nm  (shunt terms of (34) omitted — zero on this dataset), split
+    #  V_n − V_m = Z_nm I_nm  (shunt terms of (34) omitted, zero on this dataset), split
     #  into real and imaginary parts. Every mutual term Z[φ,ψ], ψ ≠ φ, is carried: no
     #  transposition, no balance and no sequence decomposition is assumed anywhere.
     @constraint(model, [k in 1:nbr, φ in PHASES, t in 1:T],
@@ -357,7 +357,7 @@ for it in 1:MAX_ITER
         v_im[bus_id[BR[k].from], φ, t] - v_im[bus_id[BR[k].to], φ, t] ==
             sum(Rm[k][φ, ψ] * Ibr_im[k, ψ, t] + Xm[k][φ, ψ] * Ibr_r[k, ψ, t] for ψ in PHASES))
 
-    # ---- bus current injection, eq. (36): KCL, per bus and phase — exact and linear ----
+    # ---- bus current injection, eq. (36): KCL per bus and phase, exact and linear ------
     @constraint(model, [b in 1:nb, φ in PHASES, t in 1:T],
         Ibs_r[b, φ, t] == sum(Ibr_r[k, φ, t] for k in out_br[b]; init = zero(AffExpr))
                         - sum(Ibr_r[k, φ, t] for k in in_br[b];  init = zero(AffExpr)))
@@ -396,7 +396,7 @@ for it in 1:MAX_ITER
 
     # ---- thermal line limit, eq. (42), as a linear polygon inscribing the circle -------
     #  IVACOPF carries the line current as a decision variable, so (42) is a constraint
-    #  you can simply write — LinDist3Flow has no I to write it about. Off by default:
+    #  you can simply write. LinDist3Flow has no I to write it about. Off by default:
     #  see IMAX_SEG above.
     if IMAX_SEG > 0
         for l in 1:IMAX_SEG
@@ -408,7 +408,7 @@ for it in 1:MAX_ITER
         end
     end
 
-    # ==================== DROOP BLOCK : Lambda / SOS2 — unchanged from single phase =====
+    # ==================== DROOP BLOCK : Lambda / SOS2, unchanged from single phase ======
     #  v at the inverter's own bus and phase, and its reactive output, share one set of
     #  weights λ, so the operating point cannot leave the curve. The binaries z force the
     #  two nonzero weights to be adjacent (the SOS2 condition), which keeps the point on a
@@ -505,7 +505,7 @@ E_avail = kWh(sum(Pavail))
 E_curt  = kWh(sum(PVC_v))
 
 # network losses, computed post hoc from the converged complex state: Σ ΔV·conj(I).
-# LinDist3Flow cannot report this at all — it drops the loss term to become linear.
+# LinDist3Flow cannot report this at all: it drops the loss term to become linear.
 branch_loss(k, φ, t) =
     complex(Vr[bus_id[BR[k].from], φ, t] - Vr[bus_id[BR[k].to], φ, t],
             Vi[bus_id[BR[k].from], φ, t] - Vi[bus_id[BR[k].to], φ, t]) *
@@ -519,7 +519,7 @@ Iutil = maximum(hypot(Ibr_r_v[k,φ,t], Ibr_im_v[k,φ,t]) / BR[k].imax
 
 println("\n================ RESULTS — IVACOPF (3-phase) + $METHOD ================")
 @printf("passes              : %d %s (%.0e tolerance on MAPB / MRPB / MVM)\n",
-        length(iterlog), converged ? "— converged" : "— NOT converged", TOL)
+        length(iterlog), converged ? "(converged)" : "(NOT converged)", TOL)
 @printf("solve time          : %.1f s total, %.1f s last pass  (%s)\n",
         total_solve, secs, status)
 WARMSTART && @printf("  + warm start      : %.1f s of exact sweeps\n", warm_seconds)
@@ -572,7 +572,7 @@ gr(size = (900, 520), legend = :topright, framestyle = :box, grid = true, gridal
 hours = range(0, 24 - 24 / T, length = T)
 
 #  One curve per inverter class, drawn in ABSOLUTE p.u. VArs so the four saturation
-#  levels q̄ are visible — normalising by q̄ would collapse them onto a single line and
+#  levels q̄ are visible; normalising by q̄ would collapse them onto a single line and
 #  hide the point. Every "+" is one 15-min dispatch point and must sit on the curve of
 #  its own class.
 CLSCOL = [:seagreen, :orangered, :dodgerblue, :mediumorchid]
