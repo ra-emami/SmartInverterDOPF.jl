@@ -876,7 +876,7 @@ p_i^{G} - p_i^{L} &= \mathcal{P}_i, & q_i^{G} - q_i^{L} &= \mathcal{Q}_i & &\for
 ```
 
 The last line is where the droop enters the network: ``q_i^{G}`` is exactly the variable
-the three encodings below constrain.
+the three encodings above constrain.
 
 **Branch losses**, from ``|I_{ij}|^2`` linearised the same way:
 
@@ -1437,7 +1437,7 @@ of the path taken to it.
 !!! note "Which host to use"
     Use `:ivacopf` for anything quantitative: it is the accurate model, and it is the one
     selected on accuracy grounds in [[11]](#ref-11). `:lindistflow` earns its place as a
-    fast convex first look and as a starting point for IVACOPF (below), but its dispatch
+    fast convex first look and as a starting point for IVACOPF (above), but its dispatch
     should not be reported as a result.
 
 What remains genuinely open is why the binding mechanism is so indirect: at the
@@ -1445,7 +1445,7 @@ worst-curtailed step nothing sits at a limit, yet the exact power flow confirms 
 injection is not deliverable under the droop. Worth understanding before building
 curtailment studies on any host.
 
-## Impact of Volt–Var droop control on feeder voltage regulation
+## Impact of Volt-VAr droop control on feeder voltage regulation
 
 The comparison so far has been between encodings. The more useful comparison is against
 not having the inverters at all. The base case is the same feeder and the same demand
@@ -1553,7 +1553,7 @@ built (it can) but **what changes in the droop encodings when it is**. The short
 is nothing, and the sections that follow are about why that is worth knowing.
 
 To make that answer testable rather than merely plausible, these sections carry **two**
-three-phase hosts, a linear one and a near-exact one, and runs all three encodings on
+three-phase hosts, a linear one and a near-exact one, and run all three encodings on
 both. Six runs, one curve, and a clean split between what the encoding is responsible for
 and what the network model is.
 
