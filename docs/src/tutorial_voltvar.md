@@ -38,12 +38,6 @@ inverter_table() = md(
           "$(fmt(case.Sdg_max_kVA[i], 0)) | $(fmt(case.qbar_kVAr[i], 0)) |"
           for i in eachindex(case.DG_SET)], "\n"))
 
-iteration_table(m) = md(
-    "| iteration | solve (s) | objective | linearisation residual | solver status |",
-    "|--:|--:|--:|--:|:--|",
-    join(["| $(r.iter) | $(fmt(r.seconds, 2)) | $(fmt(r.objective, 6)) | " *
-          "$(sci(r.residual)) | `$(r.status)` |" for r in runs[m].iterations], "\n"))
-
 deviation_table() = md(
     "| method | max ``\\lvert q^G_i - q_i(v_i)\\rvert`` (p.u.) |",
     "|:--|--:|",
@@ -766,24 +760,12 @@ Hstep(x) = op_ifelse(op_greater_than_or_equal_to(x, 0), 1.0, 0.0)
 (JuMP ≥ 1.15); they build the expression correctly outside a macro.
 
 No extra variables at all, just one algebraic expression per inverter per time step. The
-price is paid in solver behaviour, and it is not merely theoretical. ``H(\cdot)`` is
-discontinuous, so the derivative is undefined at every breakpoint and the problem is
-non-convex. On the single-phase case study below, Ipopt does reach the same answer as the
-MILP encodings, but its first pass, started from a flat voltage profile far from the
-solution, stops at `ALMOST_LOCALLY_SOLVED`, short of its own convergence tolerance:
-
-**Table 3.** Successive-linearisation passes for the Heaviside encoding on the IVACOPF host, single-phase case study.
-
-```@example tut
-iteration_table("heaviside")   # hide
-```
-
-Once the linearisation point is close enough that most inverters sit comfortably inside a
-single segment, the later passes converge cleanly. But that first pass is the
-non-smoothness showing up in practice: an interior-point method cannot get reliable
-derivative information at the kinks, and a harder case (more inverters, voltages sitting
-nearer the breakpoints) is where this bites. In production this encoding is normally
-*smoothed*, the step replaced by a sigmoid ``H(x) \approx (1 + e^{-kx})^{-1}``, which
+price is paid in solver behaviour. ``H(\cdot)`` is discontinuous, so the derivative is
+undefined at every breakpoint and the problem is non-convex. Two consequences follow: the
+model needs an NLP solver rather than an MILP one, and the non-smoothness is expensive to
+differentiate, which makes this the slowest of the three encodings on the single-phase
+case study and the first to break down as the network grows. In production the step is
+usually *smoothed*, replaced by a sigmoid ``H(x) \approx (1 + e^{-kx})^{-1}``, which
 restores differentiability at the cost of no longer representing the curve exactly.
 
 ## The single-phase hosts
@@ -794,7 +776,7 @@ independent of the encoding itself.
 This package implements **two** hosts, selected with the `host` keyword, and the droop
 block is identical in both:
 
-**Table 4.** The two network models this package implements as hosts, selected with the `host` keyword.
+**Table 3.** The two network models this package implements as hosts, selected with the `host` keyword.
 
 | `host` | model | class | solve |
 |:--|:--|:--|:--|
@@ -1045,7 +1027,7 @@ different package.
 
 **What changes for the solve:**
 
-**Table 5.** What changes between the two single-phase hosts.
+**Table 4.** What changes between the two single-phase hosts.
 
 | | LinDistFlow | IVACOPF (used here) |
 |:--|:--|:--|
@@ -1072,7 +1054,7 @@ power-flow sweep, so the first linearisation is taken about a point that is alre
 solve_dopf(case, Gurobi.Optimizer; method = :lambda, warm_start = :lindistflow)
 ```
 
-**Table 6.** Warm-starting IVACOPF from LinDistFlow: fewer passes, same answer.
+**Table 5.** Warm-starting IVACOPF from LinDistFlow: fewer passes, same answer.
 
 | start | passes | total solve | curtailed |
 |:--|--:|--:|--:|
@@ -1092,7 +1074,7 @@ resolution, 96 time steps.
 Three photovoltaic (PV) systems with smart inverters sit at buses 7, 18 and 33. Loads follow separate
 industrial, commercial and residential shapes; PV follows a clear-sky irradiance profile.
 
-**Table 7.** The three smart inverters of the single-phase case study on the IEEE 33-bus feeder [[2]](#ref-2): array rating, inverter rating and the resulting reactive capability ``\bar q``.
+**Table 6.** The three smart inverters of the single-phase case study on the IEEE 33-bus feeder [[2]](#ref-2): array rating, inverter rating and the resulting reactive capability ``\bar q``.
 
 ```@example tut
 inverter_table()   # hide
@@ -1199,7 +1181,7 @@ Wherever this page compares a dispatch against "the exact AC solution", the refe
 **backward/forward sweep** power flow [[13]](#ref-13): no linearisation, iterated to a
 fixed point for the given injections. It appears twice in the package:
 
-**Table 8.** The exact AC reference used to audit a solved dispatch.
+**Table 7.** The exact AC reference used to audit a solved dispatch.
 
 | function | what it does |
 |:--|:--|
@@ -1230,7 +1212,7 @@ count(<(case.Vmin), Vtrue) + count(>(case.Vmax), Vtrue)         # real limit vio
 a standalone script in
 [`examples/single_phase/`](https://github.com/ra-emami/SmartInverterDOPF.jl/tree/main/examples/single_phase):
 
-**Table 9.** The six single-phase example scripts, one per host and encoding.
+**Table 8.** The six single-phase example scripts, one per host and encoding.
 
 | | Big-M | Lambda / SOS2 | Heaviside |
 |:--|:--|:--|:--|
@@ -1363,7 +1345,7 @@ Every point sits on the curve of its own inverter, and the three reactive capabi
 (``\bar q = 0.242``, ``0.110`` and ``0.165`` p.u., that is 2420, 1100 and 1650 kVAr) are
 now visible as the three separated flat tails. Numerically:
 
-**Table 10.** Exactness of each encoding: the largest gap between the dispatched reactive power and the curve evaluated at the dispatched voltage, over all inverters and time steps.
+**Table 9.** Exactness of each encoding: the largest gap between the dispatched reactive power and the curve evaluated at the dispatched voltage, over all inverters and time steps.
 
 ```@example tut
 deviation_table()   # hide
@@ -1379,7 +1361,7 @@ in the model, because the solver must be free to consider them, but they do no w
 
 ## The three encodings, side by side
 
-**Table 11.** The three encodings side by side on the single-phase case study, IVACOPF host.
+**Table 10.** The three encodings side by side on the single-phase case study, IVACOPF host.
 
 ```@example tut
 comparison_table()   # hide
@@ -1418,7 +1400,7 @@ three despite needing the fewest of them.
 Running the same case on both hosts turns this from a puzzle into a measurement. Same
 feeder, same droop, same inverters, same objective; only the network model differs:
 
-**Table 12.** The two single-phase hosts disagree by a factor of fifty on curtailed energy.
+**Table 11.** The two single-phase hosts disagree by a factor of fifty on curtailed energy.
 
 | host | curtailed | at its own worst-curtailed step |
 |:--|--:|:--|
@@ -1430,7 +1412,7 @@ that settles it is to stop asking either model about itself: take each dispatch,
 **exact** AC power flow for those injections with a backward/forward sweep, and check the
 result against the physics both models claim to represent.
 
-**Table 13.** The exact-power-flow audit of the single-phase case, which settles the disagreement of Table 12.
+**Table 12.** The exact-power-flow audit of the single-phase case, which settles the disagreement of Table 11.
 
 | dispatch | its own ``v`` vs the true AC ``v`` | droop residual at the **true** voltage | steps outside ``[0.95, 1.05]`` |
 |:--|--:|--:|--:|
@@ -1672,7 +1654,7 @@ The droop needs a host, and this tutorial provides two three-phase ones, deliber
 because the pair
 makes the separation between *encoding* and *host* measurable rather than merely asserted:
 
-**Table 14.** The two three-phase hosts, and the script family implementing each.
+**Table 13.** The two three-phase hosts, and the script family implementing each.
 
 | script family | model | class | solve |
 |:--|:--|:--|:--|
@@ -2079,7 +2061,7 @@ five and nine across the phases, in **four size classes**. Because ``\bar q = S_
 curves: same breakpoint voltages, four saturation levels. Each phase carries one inverter
 of each class.
 
-**Table 15.** The four inverter size classes of the three-phase case study on `network_5_Feeder_2` [[14]](#ref-14). Because ``\bar q = S_{\max}``, each class follows a different droop curve.
+**Table 14.** The four inverter size classes of the three-phase case study on `network_5_Feeder_2` [[14]](#ref-14). Because ``\bar q = S_{\max}``, each class follows a different droop curve.
 
 ```@example tut
 tp_class_table()   # hide
@@ -2126,13 +2108,13 @@ tp_envelope_figure("lambda"; res = tpi, host = "IVACOPF")   # hide
 
 Six runs: three encodings on each of two hosts, everything else held fixed.
 
-**Table 16.** Three encodings on each of two three-phase hosts, everything else held fixed. Passes is 1 for the linear host, which has no outer loop.
+**Table 15.** Three encodings on each of two three-phase hosts, everything else held fixed. Passes is 1 for the linear host, which has no outer loop.
 
 ```@example tut
 tp_host_table()   # hide
 ```
 
-Read Table 16 in two directions. **Down each host block**, the three encodings agree on
+Read Table 15 in two directions. **Down each host block**, the three encodings agree on
 curtailment, on losses and on voltage range, which is the three-phase restatement of the
 single-phase result that these are three encodings of one curve. **Across the two blocks**,
 the hosts do not agree, and that difference is the network model's alone.
@@ -2147,7 +2129,7 @@ cannot be expected to agree with one that can, in either direction.
 
 The droop is reproduced exactly in every one of the six:
 
-**Table 17.** Exactness of the encoding within each host: the largest gap between dispatched reactive power and the curve at the voltage that host reports.
+**Table 16.** Exactness of the encoding within each host: the largest gap between dispatched reactive power and the curve at the voltage that host reports.
 
 ```@example tut
 tp_exact_table()   # hide
@@ -2156,15 +2138,15 @@ tp_exact_table()   # hide
 That is the separation this section exists to make. **Exactness of the encoding is a
 property of the encoding; accuracy is a property of the host.** Every cell above is at
 round-off (the inverters sit on their curves *within whatever model they are placed in*),
-and Table 17 says nothing whatever about whether that model is right.
+and Table 16 says nothing whatever about whether that model is right.
 
 ## What the exact power flow says
 
 To decide between the hosts you have to stop asking either model about itself. Take each
 solved dispatch, put it through an **exact three-phase backward/forward sweep**, and ask
-what the inverters would really have seen (Table 18):
+what the inverters would really have seen (Table 17):
 
-**Table 18.** The exact-power-flow audit. Each solved dispatch is re-solved with a full three-phase backward/forward sweep, and compared against what the host predicted.
+**Table 17.** The exact-power-flow audit. Each solved dispatch is re-solved with a full three-phase backward/forward sweep, and compared against what the host predicted.
 
 ```@example tut
 tp_audit_table()   # hide
@@ -2210,7 +2192,7 @@ inverters matter.
 
 ## What each host costs
 
-**Table 19.** Successive-linearisation passes for the three-phase IVACOPF host, Lambda encoding, measured with the error metrics of (44).
+**Table 18.** Successive-linearisation passes for the three-phase IVACOPF host, Lambda encoding, measured with the error metrics of (44).
 
 ```@example tut
 tp_pass_table()   # hide
@@ -2225,12 +2207,12 @@ their first two passes agree to three significant figures on every metric; by th
 they are all far below tolerance and what separates them is solver noise. The outer loop
 belongs to the host, not to the droop.
 
-Note the second column of Table 19: **each pass is a complete MILP** (or NLP), so IVACOPF
+Note the second column of Table 18: **each pass is a complete MILP** (or NLP), so IVACOPF
 costs one LinDist3Flow-sized solve per pass, on a model rather more than twice the size,
 times the number of passes, plus a few seconds of warm-start sweeps. That is the whole of
-the price, and Table 18 is what it buys.
+the price, and Table 17 is what it buys.
 
-**Table 20.** What changes between the two three-phase hosts.
+**Table 19.** What changes between the two three-phase hosts.
 
 | | LinDist3Flow | IVACOPF (3-phase) |
 |:--|:--|:--|
@@ -2257,7 +2239,7 @@ environment variable:
 TP_CASE=network_17_Feeder_6 julia --project=examples/three_phase     examples/three_phase/LinDist3Flow_Lambda.jl
 ```
 
-**Table 21.** Scalability of the three encodings on the LinDist3Flow host, across the 194-bus `network_5_Feeder_2` [[14]](#ref-14) and the 3856-bus `network_17_Feeder_6` [[15]](#ref-15). “Max droop deviation” is ``\Delta`` of (29), evaluated at each host's own voltages.
+**Table 20.** Scalability of the three encodings on the LinDist3Flow host, across the 194-bus `network_5_Feeder_2` [[14]](#ref-14) and the 3856-bus `network_17_Feeder_6` [[15]](#ref-15). “Max droop deviation” is ``\Delta`` of (29), evaluated at each host's own voltages.
 
 ```@example tut
 tp_scale_table()   # hide
@@ -2277,7 +2259,7 @@ count (it adds nothing to the model) and it is comfortably the most expensive to
 On the small feeder it costs several times Lambda. On the large one at the full horizon
 Ipopt gives up with `ERROR`; shortening the day to twelve steps brings it back to a
 model an eighth the size, which then solves, in minutes rather than the seconds the
-mixed-integer encodings need, but it solves, and the last row of Table 21 records what
+mixed-integer encodings need, but it solves, and the last row of Table 20 records what
 comes back. The non-smoothness that costs nothing to write costs a great deal to
 differentiate, and it is what limits this encoding long before the network does.
 
@@ -2286,7 +2268,7 @@ here as before. It changes which one you would reach for on a feeder with an inv
 every service connection.
 
 The sweep is run on LinDist3Flow, because it is the host that isolates the *encodings’*
-scaling: one solve each, no outer loop, so what Table 21 measures is the cost of the droop
+scaling: one solve each, no outer loop, so what Table 20 measures is the cost of the droop
 block and nothing else. IVACOPF multiplies every row by its pass count, three passes on the
 case study, on top of a larger model per pass, but the binary counts, which are the thing
 at issue here, are identical in both hosts.
@@ -2302,7 +2284,7 @@ Every host × encoding pair has its own standalone script in
 All six share their skeleton verbatim (data, PV placement, verification, figures); a
 `diff` between any two shows only the droop block, or only the network model:
 
-**Table 22.** The six three-phase example scripts, one per host and encoding.
+**Table 21.** The six three-phase example scripts, one per host and encoding.
 
 | | Big-M | Lambda / SOS2 | Heaviside |
 |:--|:--|:--|:--|
@@ -2319,7 +2301,7 @@ julia --project=examples/three_phase examples/three_phase/IVACOPF3Ph_Lambda.jl
 Each reads its feeder, horizon and fleet from the environment, so the same model runs on a
 different network without touching the code:
 
-**Table 23.** Environment overrides accepted by every three-phase script.
+**Table 22.** Environment overrides accepted by every three-phase script.
 
 | variable | default | meaning |
 |:--|:--|:--|
@@ -2395,8 +2377,8 @@ Pick the encoding for the solver you have; pick the host for the accuracy you ne
 
 **Scale picks the method.** Binaries multiply with inverters × time steps, which is what
 eventually breaks the MILP route on large fleets. The integer-free encoding avoids that
-but hands the difficulty to the NLP solver, where non-smoothness shows up as degraded
-convergence, visible here in a first pass that stops at `ALMOST_LOCALLY_SOLVED`.
+but hands the difficulty to the NLP solver, where the non-smoothness shows up as degraded
+convergence and, on the largest feeder tried here, as a solve that does not finish at all.
 
 ## References
 
