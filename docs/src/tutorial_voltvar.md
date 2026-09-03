@@ -352,8 +352,6 @@ The three columns are three answers to one question: how do you say "it depends"
 solver? Each pays for exactness in a different currency: a constant you must choose,
 a combinatorial structure, or differentiability.
 
-## The single-phase hosts
-
 The droop is a self-contained module. Whatever distribution OPF you use, it exposes a
 voltage magnitude at each inverter bus; the droop module adds the relationship tying
 that inverter's reactive output to that voltage:
@@ -377,10 +375,426 @@ inverter bus.
 That is a claim, so the [Three phases](@ref) section tests it: the same three encodings are
 run against four hosts in all, two single-phase and two three-phase.
 
+In the JuMP snippets below, `DG_SET` is the set of inverter buses and
+`HOUR_SET`/`QUARTER_SET` the time steps of the horizon; `v` is whatever voltage
+variable the host exposes. The hosts themselves come after the three encodings.
+
+## Method A — Big-M
+
+*Following Savasci, Inaolaji and Paudyal [[5]](#ref-5), where this formulation was introduced for
+a second-order-cone DOPF; also Chapter 4 of Inaolaji's dissertation [[9]](#ref-9).*
+
+**The idea in one sentence.** Give every segment its own on/off switch, and write
+constraints that are *switched off*, made trivially true, whenever their segment is
+not the active one.
+
+That switching-off is what "big-M" means. Take any constraint you want to enforce only
+when a binary ``\delta`` equals 1, and add ``M(1-\delta)`` to its right-hand side. If
+``\delta = 1`` the added term vanishes and the constraint bites. If ``\delta = 0`` the
+right-hand side becomes so large that the constraint cannot possibly be violated; it is
+still *present* in the model, but it no longer restricts anything. One constant, ``M``,
+buys you an if-statement.
+
+**Step 1: exactly one segment is active.** Introduce a binary ``\delta_b`` for each of
+the five segments and require
+
+```math
+\sum_{b=1}^{5}\delta_{b}=1 . \tag{2}
+```
+
+**Step 2: each switch owns a voltage window.** If segment ``b`` is the active one, then
+``v_i`` must lie in that segment's voltage range ``[V^{\text{bp}}_{b},
+V^{\text{bp}}_{b+1}]``. In big-M form that is one two-sided inequality per segment, and
+writing all five out gives the complete window system:
+
+```math
+\begin{aligned}
+-(1-\delta_{1})M + V_i^{l}\;\; &\le v_i \le\;\; V^{\text{bp}}_{2} + (1-\delta_{1})M\\
+-(1-\delta_{2})M + V^{\text{bp}}_{2} &\le v_i \le\;\; V^{\text{bp}}_{3} + (1-\delta_{2})M\\
+-(1-\delta_{3})M + V^{\text{bp}}_{3} &\le v_i \le\;\; V^{\text{bp}}_{4} + (1-\delta_{3})M\\
+-(1-\delta_{4})M + V^{\text{bp}}_{4} &\le v_i \le\;\; V^{\text{bp}}_{5} + (1-\delta_{4})M\\
+-(1-\delta_{5})M + V^{\text{bp}}_{5} &\le v_i \le\;\; V_i^{u} + (1-\delta_{5})M
+\end{aligned} \tag{3}
+```
+
+Each row is vacuous when its ``\delta_b = 0`` and binding when ``\delta_b = 1``, so
+together with Step 1 the solver is forced to pick the segment that genuinely contains
+``v_i``. Note the two outer rows: the first segment is bounded below by the variable's own
+lower bound ``V_i^{l}`` and the last above by ``V_i^{u}``, rather than by
+``V^{\text{bp}}_{1}`` and ``V^{\text{bp}}_{6}``. That keeps the model feasible if ``v_i``
+ever sits outside the range the curve was drawn over; the saturated laws simply continue
+to apply.
+
+**Step 3: assemble the droop law, and watch it turn nonlinear.** With the switches in
+place, ``q_i^G`` is just the sum of the five segment laws, each weighted by its own
+binary. Segments 1, 3 and 5 contribute constants (``\bar q_i``, ``0``, ``-\bar q_i``);
+the two sloped segments contribute their affine laws, written in slope–intercept form:
+
+```math
+q_i^G \;=\; \delta_1\,\bar q_i
+\;+\; \delta_2\!\left(\alpha_1 v_i + \frac{\bar q_i V^{\text{bp}}_3}{V^{\text{bp}}_3 - V^{\text{bp}}_2}\right)
+\;+\; \delta_3\cdot 0
+\;+\; \delta_4\!\left(\alpha_2 v_i + \frac{\bar q_i V^{\text{bp}}_4}{V^{\text{bp}}_5 - V^{\text{bp}}_4}\right)
+\;+\; \delta_5\left(-\bar q_i\right) \tag{4}
+```
+
+with slopes ``\alpha_1 = -\bar q_i/(V^{\text{bp}}_3-V^{\text{bp}}_2)`` and
+``\alpha_2 = -\bar q_i/(V^{\text{bp}}_5-V^{\text{bp}}_4)``.
+
+This is a correct statement of the curve: exactly one ``\delta_b`` equals 1, so exactly
+one bracket survives and ``q_i^G`` takes that segment's value. But it is **not linear**.
+Multiply the two sloped brackets out and the offending terms appear:
+
+```math
+\underbrace{\delta_2\,\alpha_1 v_i}_{\text{bilinear}} \qquad\text{and}\qquad
+\underbrace{\delta_4\,\alpha_2 v_i}_{\text{bilinear}}
+```
+
+Each is a **product of two decision variables**: one binary, one continuous. Everything
+else in the expression is a variable times a constant. So the whole difficulty of the
+Big-M formulation reduces to these two products, and if they can be removed the model
+becomes a plain MILP.
+
+**Step 4: remove the two products, exactly.** The saving grace is that ``\delta_b`` is
+binary rather than merely continuous, and ``v_i`` is bounded. Under those two conditions
+each product can be replaced by a new continuous variable ``W_b := \delta_b v_i`` and
+four linear inequalities, with **no approximation whatsoever**:
+
+```math
+-M(1-\delta_b) \;\le\; v_i - W_b \;\le\; M(1-\delta_b), \qquad
+V^{\text{bp}}_{b}\,\delta_b \;\le\; W_b \;\le\; V^{\text{bp}}_{b+1}\,\delta_b . \tag{5}
+```
+
+Check the two cases and the exactness is immediate. If ``\delta_b = 1``, the left pair
+forces ``W_b = v_i`` and the right pair confines ``v_i`` to the segment. If
+``\delta_b = 0``, the right pair forces ``W_b = 0`` (both bounds collapse to zero) while
+the left pair goes slack. Either way ``W_b`` equals ``\delta_b v_i`` exactly: this is a
+reformulation, not a relaxation.
+
+Only segments 2 and 4 need this treatment, and for those the ``W_b`` bounds already pin
+``v_i`` into the segment, so their Step-2 window rows are replaced rather than added to.
+The complete constraint system for the Big-M droop is therefore:
+
+```math
+\begin{aligned}
+-(1-\delta_{1})M + V_i^{l}\;\; &\le v_i \le\; V^{\text{bp}}_{2} + (1-\delta_{1})M\\[2pt]
+-M(1-\delta_{2}) \;&\le\; v_i - W_{2} \;\le\; (1-\delta_{2})M\\
+V^{\text{bp}}_{2}\,\delta_{2} \;&\le\; W_{2} \;\le\; V^{\text{bp}}_{3}\,\delta_{2}\\[2pt]
+-(1-\delta_{3})M + V^{\text{bp}}_{3} &\le v_i \le\; V^{\text{bp}}_{4} + (1-\delta_{3})M\\[2pt]
+-M(1-\delta_{4}) \;&\le\; v_i - W_{4} \;\le\; (1-\delta_{4})M\\
+V^{\text{bp}}_{4}\,\delta_{4} \;&\le\; W_{4} \;\le\; V^{\text{bp}}_{5}\,\delta_{4}\\[2pt]
+-(1-\delta_{5})M + V^{\text{bp}}_{5} &\le v_i \le\; V_i^{u} + (1-\delta_{5})M
+\end{aligned} \tag{6}
+```
+
+Read alongside the Step-2 system, the change is visible: rows 2 and 4, the sloped
+segments, have each become a ``W`` definition plus a ``W`` range, while the three flat
+segments keep their original windows unchanged.
+
+Now substitute ``\delta_2 v_i \to W_2`` and ``\delta_4 v_i \to W_4`` in the Step 3
+expression. Nothing else changes, and the droop law becomes a single **linear** equation
+in which every coefficient is a constant:
+
+```math
+q_i^G = \delta_1\bar q_i
+      + \alpha_1 W_2 + \delta_2\frac{\bar q_i V^{\text{bp}}_3}{V^{\text{bp}}_3 - V^{\text{bp}}_2}
+      + \alpha_2 W_4 + \delta_4\frac{\bar q_i V^{\text{bp}}_4}{V^{\text{bp}}_5 - V^{\text{bp}}_4}
+      - \delta_5\bar q_i \tag{7}
+```
+
+Compare it with the Step 3 version: the two bracketed sloped terms have simply been split
+into a ``W`` term and a ``\delta`` term. That substitution is the entire content of the
+Big-M droop model.
+
+In JuMP:
+
+```julia
+@variable(model, δ[1:5, DG_SET, HOUR_SET, QUARTER_SET], Bin)
+@variable(model, W2[DG_SET, HOUR_SET, QUARTER_SET])
+@variable(model, W4[DG_SET, HOUR_SET, QUARTER_SET])
+
+@constraint(model, [d in DG_SET, h in HOUR_SET, m in QUARTER_SET],
+    sum(δ[i, d, h, m] for i in 1:5) == 1)
+
+# flat segments 1, 3, 5: the binary only switches on a voltage window
+for (i, lo, hi) in ((1, 1, 2), (3, 3, 4), (5, 5, 6))
+    @constraint(model, [d in DG_SET, h in HOUR_SET, m in QUARTER_SET],
+        v[d, h, m] >= Vbp[lo] - Mbig * (1 - δ[i, d, h, m]))
+    @constraint(model, [d in DG_SET, h in HOUR_SET, m in QUARTER_SET],
+        v[d, h, m] <= Vbp[hi] + Mbig * (1 - δ[i, d, h, m]))
+end
+
+# sloped segments 2 and 4: W = δ·v, whose bounds double as the window
+for (i, W, lo, hi) in ((2, W2, 2, 3), (4, W4, 4, 5))
+    @constraint(model, [d in DG_SET, h in HOUR_SET, m in QUARTER_SET],
+        v[d, h, m] - W[d, h, m] >= -Mbig * (1 - δ[i, d, h, m]))
+    @constraint(model, [d in DG_SET, h in HOUR_SET, m in QUARTER_SET],
+        v[d, h, m] - W[d, h, m] <=  Mbig * (1 - δ[i, d, h, m]))
+    @constraint(model, [d in DG_SET, h in HOUR_SET, m in QUARTER_SET],
+        W[d, h, m] >= Vbp[lo] * δ[i, d, h, m])
+    @constraint(model, [d in DG_SET, h in HOUR_SET, m in QUARTER_SET],
+        W[d, h, m] <= Vbp[hi] * δ[i, d, h, m])
+end
+```
+
+!!! tip "Choose M as tightly as you can justify"
+    ``M`` only has to dominate the largest possible violation of a deactivated
+    constraint, which here is set by the voltage bounds. A needlessly large ``M`` leaves
+    the LP relaxation loose, the branch-and-bound tree deep, and the solve slow. The
+    value used here is `1.1`.
+
+The cost of exactness is bookkeeping: five binaries per inverter per time step, plus two
+auxiliary continuous variables.
+
+## Method B — Lambda / SOS2
+
+*Following Inaolaji, Savasci and Paudyal [[6]](#ref-6) and its three-phase extension [[7]](#ref-7), which
+apply the classical lambda method to Volt-VAr and Volt-Watt droops on a LinDistFlow
+host; see also Chapter 5 of [[9]](#ref-9).*
+
+**The idea in one sentence.** Instead of asking *which segment am I on*, describe the
+operating point directly as a blend of two neighbouring breakpoints.
+
+Big-M starts from the case distinction and works to make it linear. Lambda never forms
+the case distinction at all. It uses a fact about piecewise-linear curves: **every point
+on the curve is a weighted average of two adjacent breakpoints**, and nothing else is.
+
+So attach a weight ``\lambda_b \ge 0`` to each of the six breakpoints, make the weights
+sum to one, and build *both* coordinates from the same weights:
+
+```math
+v_i = \sum_{b=1}^{6}\lambda_b V^{\text{bp}}_b, \qquad
+q_i^G = \sum_{b=1}^{6}\lambda_b q^{\text{bp}}_b, \qquad
+\sum_{b=1}^{6}\lambda_b = 1, \qquad \lambda_b \ge 0 . \tag{8}
+```
+
+The single shared ``\lambda`` is the whole trick. Because one set of weights generates
+the voltage *and* the reactive power, the pair ``(v_i, q_i^G)`` cannot drift off the
+curve: move the weights and both coordinates slide together along it. Both
+``V^{\text{bp}}_b`` and ``q^{\text{bp}}_b`` are constants, so these are ordinary linear
+constraints, and no ``M`` needs choosing anywhere.
+
+**The catch.** As written, the weights describe the *convex hull* of the six
+breakpoints, not the curve. Nothing yet stops the solver putting weight on ``\lambda_1``
+and ``\lambda_5`` simultaneously, which lands the operating point somewhere in the
+interior of that hull, a ``(v, q)`` pair the inverter would never produce. Since
+interior points give the optimiser more reactive power at a given voltage than the real
+device offers, it will happily take them.
+
+**The fix** is the classical **SOS2** condition: at most two weights may be nonzero, and
+they must be *adjacent*. That is exactly the "blend of two neighbouring breakpoints"
+statement, imposed rather than hoped for. Introduce one binary ``z_b`` per segment,
+five of them for six breakpoints, and write, in full:
+
+```math
+\begin{aligned}
+\lambda_1 &\le z_1\\
+\lambda_2 &\le z_1 + z_2\\
+\lambda_3 &\le z_2 + z_3\\
+\lambda_4 &\le z_3 + z_4\\
+\lambda_5 &\le z_4 + z_5\\
+\lambda_6 &\le z_5\\[2pt]
+\sum_{b=1}^{5} z_b &= 1, \qquad z_b \in \{0,1\}
+\end{aligned} \tag{9}
+```
+
+Read it as: ``z_b = 1`` names the active segment; a weight ``\lambda_b`` is allowed to be
+nonzero only if breakpoint ``b`` is an endpoint of that segment. Since exactly one
+``z_b`` is 1, precisely two adjacent weights survive and every other weight is forced to
+zero. The blend is back on the curve.
+
+Trace one case to see it work. Suppose ``z_3 = 1`` and every other ``z_b = 0``. Rows 1, 2
+and 6 then force ``\lambda_1 = \lambda_2 = \lambda_6 = 0``; row 5 forces
+``\lambda_5 = 0``; and only ``\lambda_3 \le 1`` and ``\lambda_4 \le 1`` survive. With
+``\sum_b \lambda_b = 1`` the operating point is a blend of breakpoints 3 and 4 alone,
+that is, a point on segment 3, the dead-band.
+
+Collecting everything, the complete Lambda droop model is:
+
+```math
+\begin{aligned}
+v_i &= \sum_{b=1}^{6}\lambda_b V^{\text{bp}}_b\\
+q_i^G &= \sum_{b=1}^{6}\lambda_b q^{\text{bp}}_b\\
+\sum_{b=1}^{6}\lambda_b &= 1, \qquad \lambda_b \ge 0\\
+\lambda_1 \le z_1, \quad \lambda_b &\le z_{b-1} + z_b \;\;(b=2,\dots,5), \quad \lambda_6 \le z_5\\
+\sum_{b=1}^{5} z_b &= 1, \qquad z_b \in \{0,1\}
+\end{aligned} \tag{10}
+```
+
+Seven constraint rows and no constant to tune; compare that with the Big-M system above.
+
+Worth noticing what is *absent*: no big-M constant, and no product of a binary with a
+continuous variable. The binaries here only switch other variables off, a much
+better-behaved use of integrality, and the reason this formulation tends to give tighter
+relaxations than Big-M on the same curve.
+
+```julia
+@variable(model, λ[1:6, DG_SET, HOUR_SET, QUARTER_SET] >= 0)
+@variable(model, z[1:5, DG_SET, HOUR_SET, QUARTER_SET], Bin)
+
+@constraint(model, [d in DG_SET, h in HOUR_SET, m in QUARTER_SET],
+    sum(λ[i, d, h, m] for i in 1:6) == 1)
+@constraint(model, [d in DG_SET, h in HOUR_SET, m in QUARTER_SET],
+    sum(z[i, d, h, m] for i in 1:5) == 1)
+@constraint(model, [d in DG_SET, h in HOUR_SET, m in QUARTER_SET],
+    λ[1, d, h, m] <= z[1, d, h, m])
+@constraint(model, [i in 2:5, d in DG_SET, h in HOUR_SET, m in QUARTER_SET],
+    λ[i, d, h, m] <= z[i-1, d, h, m] + z[i, d, h, m])
+@constraint(model, [d in DG_SET, h in HOUR_SET, m in QUARTER_SET],
+    λ[6, d, h, m] <= z[5, d, h, m])
+
+@constraint(model, [d in DG_SET, h in HOUR_SET, m in QUARTER_SET],
+    v[d, h, m] == sum(λ[i, d, h, m] * Vbp[i] for i in 1:6))
+@constraint(model, [d in DG_SET, h in HOUR_SET, m in QUARTER_SET],
+    Qdg[d, h, m] == sum(λ[i, d, h, m] * qpts[d][i] for i in 1:6))
+```
+
+!!! note "SOS2 without the binaries"
+    Most MILP solvers support SOS2 natively via `MOI.SOS2`, which lets the solver
+    branch on the set directly instead of on explicit binaries. The formulation above is
+    written out longhand because it is portable and because it makes the logic visible,
+    which is the point of a tutorial.
+
+The Lambda form has a decisive practical advantage over Big-M once you stop treating the
+curve as fixed. The breakpoint voltages ``V^{\text{bp}}_b`` appear *linearly* here, and in
+only one place. Make them decision variables, so the OPF chooses the curve as well as
+the dispatch, and exactly one product turns bilinear:
+
+```math
+v_i = \sum_{b=1}^{6}\lambda_b V^{\text{bp}}_b \tag{11}
+```
+
+A single, well-understood bilinear term, routinely handled by a McCormick envelope and
+tightened by partitioning the breakpoint range if the relaxation is too loose. The
+reactive equation ``q_i^G = \sum_b \lambda_b q^{\text{bp}}_b`` is untouched, since the
+ordinates stay constant.
+
+Big-M remains exact under the same change (nothing about it stops representing the
+curve), but the nonlinearity it acquires is both more widespread and of a worse kind. The
+slopes ``\alpha_1 = -\bar q_i/(V^{\text{bp}}_3 - V^{\text{bp}}_2)`` and ``\alpha_2`` become
+*rational functions* of the breakpoints, so in the droop law the terms
+``\alpha_1 W_2 + \delta_2\,\bar q_i V^{\text{bp}}_3/(V^{\text{bp}}_3 - V^{\text{bp}}_2)`` and
+their segment-4 counterparts are nonlinear in ``V^{\text{bp}}`` rather than merely
+bilinear; and the segment bounds
+``V^{\text{bp}}_b \delta_b \le W_b \le V^{\text{bp}}_{b+1}\delta_b`` pick up further
+products of breakpoints with binaries. Lambda confines the whole difficulty to one term;
+Big-M spreads it across the droop law *and* the bounds. That is why work on optimised and
+adaptive droop curves is normally built on Lambda [[8]](#ref-8), [[11]](#ref-11).
+
+## Method C — Heaviside
+
+*Following Inaolaji, Savasci and Paudyal [[10]](#ref-10), which introduced this encoding precisely
+to remove the integer variables from the two formulations above, on the same
+current–voltage DOPF host used here; see also Chapter 6 of [[9]](#ref-9).*
+
+**The idea in one sentence.** Keep the case distinction, but write it as arithmetic
+instead of logic, so there is nothing for a solver to branch on.
+
+Both previous methods spend integer variables to answer "which segment?". Integers are
+what make a model combinatorial: the count grows with inverters × time steps, and
+branch-and-bound has to search over them. The motivation in [[10]](#ref-10) is to get rid of them
+altogether, which also makes the model a candidate for real-time use.
+
+The observation is that an "if" is just an on/off switch, and the unit step *is* an
+on/off switch written as a function:
+
+```math
+H(x) = \begin{cases} 1, & x \ge 0\\ 0, & x < 0\end{cases} \tag{12}
+```
+
+Shift it to flip at a breakpoint and subtract two of them, and you get a **window** that
+equals 1 on one segment and 0 everywhere else:
+
+```math
+\mathcal{W}_b(v_i) \;=\; H\!\left(v_i - V^{\text{bp}}_{b}\right) - H\!\left(v_i - V^{\text{bp}}_{b+1}\right) \tag{13}
+```
+
+which is precisely the condition ``V^{\text{bp}}_b \le v_i \le V^{\text{bp}}_{b+1}``: the
+if-else of segment ``b``, written without logic and without binaries. Multiply each
+segment's law by its own window and add them up. The windows are disjoint, so at any
+voltage all but one vanish and the sum collapses to the single active law.
+
+Written out with every window expanded, and with all five segments present so the
+structure is visible:
+
+```math
+\begin{aligned}
+q_i^G \;=\; &\;\;\;\;\bar q_i \big[\,H(v_i - V^{\text{bp}}_1) - H(v_i - V^{\text{bp}}_2)\,\big] \;+\\
+&\;\alpha_1\!\left(v_i - V^{\text{bp}}_3\right)\big[\,H(v_i - V^{\text{bp}}_2) - H(v_i - V^{\text{bp}}_3)\,\big] \;+\\
+&\;\;\;\;0\,\big[\,H(v_i - V^{\text{bp}}_3) - H(v_i - V^{\text{bp}}_4)\,\big] \;+\\
+&\;\alpha_2\!\left(v_i - V^{\text{bp}}_4\right)\big[\,H(v_i - V^{\text{bp}}_4) - H(v_i - V^{\text{bp}}_5)\,\big] \;-\\
+&\;\;\;\;\bar q_i \big[\,H(v_i - V^{\text{bp}}_5) - H(v_i - V^{\text{bp}}_6)\,\big]
+\end{aligned} \tag{14}
+```
+
+with the same slopes as before,
+``\alpha_1 = -\bar q_i/(V^{\text{bp}}_3-V^{\text{bp}}_2)`` and
+``\alpha_2 = -\bar q_i/(V^{\text{bp}}_5-V^{\text{bp}}_4)``.
+
+That is the entire droop model: one equation, no auxiliary variables, no constraint
+system to accompany it. Line 3 is written out only for symmetry; being identically zero,
+it is dropped in the implementation.
+
+
+!!! tip "Anchor each sloped term at its zero crossing"
+    This is the one place where it is easy to get the algebra wrong, so it is worth
+    stating explicitly. A sloped term is written ``\alpha(v_i - V^{\ast})`` where
+    ``V^{\ast}`` is the voltage at which *that segment's* reactive output passes through
+    zero, namely ``V^{\text{bp}}_3`` for segment 2 and ``V^{\text{bp}}_4`` for segment 4.
+
+    Anchoring anywhere else breaks the curve. Anchor segment 2 at ``V^{\text{bp}}_2``
+    instead, for example, and the term evaluates to ``0`` at ``V^{\text{bp}}_2`` where the
+    curve should read ``\bar q_i``, leaving a jump at the breakpoint. With the anchors
+    above, segment 2 gives ``\bar q_i`` at ``V^{\text{bp}}_2`` and ``0`` at
+    ``V^{\text{bp}}_3``, matching the flat segments it joins on either side. The
+    verification section below is what confirms this came out right.
+
+```julia
+Hstep(x) = op_ifelse(op_greater_than_or_equal_to(x, 0), 1.0, 0.0)
+α1 = Dict(d => -qbar[d] / (Vbp[3] - Vbp[2]) for d in DG_SET)
+α2 = Dict(d => -qbar[d] / (Vbp[5] - Vbp[4]) for d in DG_SET)
+
+@constraint(model, [d in DG_SET, h in HOUR_SET, m in QUARTER_SET],
+    Qdg[d, h, m] ==
+        qbar[d] * (Hstep(v[d,h,m] - Vbp[1]) - Hstep(v[d,h,m] - Vbp[2]))
+      + α1[d] * (v[d,h,m] - Vbp[3]) * (Hstep(v[d,h,m] - Vbp[2]) - Hstep(v[d,h,m] - Vbp[3]))
+      + α2[d] * (v[d,h,m] - Vbp[4]) * (Hstep(v[d,h,m] - Vbp[4]) - Hstep(v[d,h,m] - Vbp[5]))
+      - qbar[d] * (Hstep(v[d,h,m] - Vbp[5]) - Hstep(v[d,h,m] - Vbp[6])))
+```
+
+`op_ifelse` and `op_greater_than_or_equal_to` are JuMP's nonlinear operators
+(JuMP ≥ 1.15); they build the expression correctly outside a macro.
+
+No extra variables at all, just one algebraic expression per inverter per time step. The
+price is paid in solver behaviour, and it is not merely theoretical. ``H(\cdot)`` is
+discontinuous, so the derivative is undefined at every breakpoint and the problem is
+non-convex. On the single-phase case study below, Ipopt does reach the same answer as the
+MILP encodings, but its first pass, started from a flat voltage profile far from the
+solution, stops at `ALMOST_LOCALLY_SOLVED`, short of its own convergence tolerance:
+
+**Table 3.** Successive-linearisation passes for the Heaviside encoding on the IVACOPF host, single-phase case study.
+
+```@example tut
+iteration_table("heaviside")   # hide
+```
+
+Once the linearisation point is close enough that most inverters sit comfortably inside a
+single segment, the later passes converge cleanly. But that first pass is the
+non-smoothness showing up in practice: an interior-point method cannot get reliable
+derivative information at the kinks, and a harder case (more inverters, voltages sitting
+nearer the breakpoints) is where this bites. In production this encoding is normally
+*smoothed*, the step replaced by a sigmoid ``H(x) \approx (1 + e^{-kx})^{-1}``, which
+restores differentiability at the cost of no longer representing the curve exactly.
+
+## The single-phase hosts
+
+All three encodings need a network model to sit inside, and that choice is
+independent of the encoding itself.
+
 This package implements **two** hosts, selected with the `host` keyword, and the droop
 block is identical in both:
 
-**Table 3.** The two network models this package implements as hosts, selected with the `host` keyword.
+**Table 4.** The two network models this package implements as hosts, selected with the `host` keyword.
 
 | `host` | model | class | solve |
 |:--|:--|:--|:--|
@@ -423,7 +837,7 @@ Voltage and current at bus ``i`` are split into real and imaginary parts,
 **Slack reference.**
 
 ```math
-v_0^{\mathrm{re}} = V^{\mathrm{nom}}, \qquad v_0^{\mathrm{im}} = 0 \tag{2}
+v_0^{\mathrm{re}} = V^{\mathrm{nom}}, \qquad v_0^{\mathrm{im}} = 0 \tag{15}
 ```
 
 **Ohm's law along each branch**, exact and linear, which is the point of current-voltage
@@ -434,7 +848,7 @@ coordinates:
 v_i^{\mathrm{re}} - v_j^{\mathrm{re}} &= R_{ij} I_{ij}^{\mathrm{re}} - X_{ij} I_{ij}^{\mathrm{im}}\\
 v_i^{\mathrm{im}} - v_j^{\mathrm{im}} &= R_{ij} I_{ij}^{\mathrm{im}} + X_{ij} I_{ij}^{\mathrm{re}}
 \end{aligned}
-\qquad \forall (i,j) \in \mathcal{L} \tag{3}
+\qquad \forall (i,j) \in \mathcal{L} \tag{16}
 ```
 
 **Current balance (KCL) at each bus**, also exact and linear:
@@ -444,7 +858,7 @@ I_i^{\mathrm{re}} = \sum_{j:(i,j)\in\mathcal{L}} I_{ij}^{\mathrm{re}}
                   - \sum_{k:(k,i)\in\mathcal{L}} I_{ki}^{\mathrm{re}},
 \qquad
 I_i^{\mathrm{im}} = \sum_{j:(i,j)\in\mathcal{L}} I_{ij}^{\mathrm{im}}
-                  - \sum_{k:(k,i)\in\mathcal{L}} I_{ki}^{\mathrm{im}} \tag{4}
+                  - \sum_{k:(k,i)\in\mathcal{L}} I_{ki}^{\mathrm{im}} \tag{17}
 ```
 
 **Power balance.** The true relation between injected power and current is bilinear:
@@ -452,7 +866,7 @@ I_i^{\mathrm{im}} = \sum_{j:(i,j)\in\mathcal{L}} I_{ij}^{\mathrm{im}}
 ```math
 p_i = v_i^{\mathrm{re}} I_i^{\mathrm{re}} + v_i^{\mathrm{im}} I_i^{\mathrm{im}},
 \qquad
-q_i = v_i^{\mathrm{im}} I_i^{\mathrm{re}} - v_i^{\mathrm{re}} I_i^{\mathrm{im}} \tag{5}
+q_i = v_i^{\mathrm{im}} I_i^{\mathrm{re}} - v_i^{\mathrm{re}} I_i^{\mathrm{im}} \tag{18}
 ```
 
 Each product ``xy`` is replaced by its first-order expansion about the previous iterate,
@@ -466,7 +880,7 @@ Each product ``xy`` is replaced by its first-order expansion about the previous 
 \mathcal{Q}_i &:= v_i^{\mathrm{im}\circ} I_i^{\mathrm{re}} + I_i^{\mathrm{re}\circ} v_i^{\mathrm{im}}
               - v_i^{\mathrm{re}\circ} I_i^{\mathrm{im}} - I_i^{\mathrm{im}\circ} v_i^{\mathrm{re}}
               - v_i^{\mathrm{im}\circ} I_i^{\mathrm{re}\circ} + v_i^{\mathrm{re}\circ} I_i^{\mathrm{im}\circ}
-\end{aligned} \tag{6}
+\end{aligned} \tag{19}
 ```
 
 which are then set equal to the net injection at each class of bus:
@@ -476,7 +890,7 @@ which are then set equal to the net injection at each class of bus:
 p_0^{\mathrm{grid}} &= \mathcal{P}_0, & q_0^{\mathrm{grid}} &= \mathcal{Q}_0 & &\text{slack}\\
 -p_i^{L} &= \mathcal{P}_i, & -q_i^{L} &= \mathcal{Q}_i & &\forall i \in \mathcal{B}\setminus(\mathcal{G}\cup\{0\})\\
 p_i^{G} - p_i^{L} &= \mathcal{P}_i, & q_i^{G} - q_i^{L} &= \mathcal{Q}_i & &\forall i \in \mathcal{G}
-\end{aligned} \tag{7}
+\end{aligned} \tag{20}
 ```
 
 The last line is where the droop enters the network: ``q_i^{G}`` is exactly the variable
@@ -486,7 +900,7 @@ the three encodings below constrain.
 
 ```math
 P^{\mathrm{loss}}_{ij} = R_{ij}\Big(2 I_{ij}^{\mathrm{re}\circ} I_{ij}^{\mathrm{re}} - (I_{ij}^{\mathrm{re}\circ})^2
-                              + 2 I_{ij}^{\mathrm{im}\circ} I_{ij}^{\mathrm{im}} - (I_{ij}^{\mathrm{im}\circ})^2\Big) \tag{8}
+                              + 2 I_{ij}^{\mathrm{im}\circ} I_{ij}^{\mathrm{im}} - (I_{ij}^{\mathrm{im}\circ})^2\Big) \tag{21}
 ```
 
 and ``Q^{\mathrm{loss}}_{ij}`` identically with ``X_{ij}`` in place of ``R_{ij}``.
@@ -495,7 +909,7 @@ and ``Q^{\mathrm{loss}}_{ij}`` identically with ``X_{ij}`` in place of ``R_{ij}`
 
 ```math
 v_i = \frac{v_i^{\mathrm{re}\circ}}{\sqrt{(v_i^{\mathrm{re}\circ})^2 + (v_i^{\mathrm{im}\circ})^2}}\, v_i^{\mathrm{re}}
-    + \frac{v_i^{\mathrm{im}\circ}}{\sqrt{(v_i^{\mathrm{re}\circ})^2 + (v_i^{\mathrm{im}\circ})^2}}\, v_i^{\mathrm{im}} \tag{9}
+    + \frac{v_i^{\mathrm{im}\circ}}{\sqrt{(v_i^{\mathrm{re}\circ})^2 + (v_i^{\mathrm{im}\circ})^2}}\, v_i^{\mathrm{im}} \tag{22}
 ```
 
 This ``v_i`` is the single quantity the droop module reads.
@@ -503,7 +917,7 @@ This ``v_i`` is the single quantity the droop module reads.
 **Voltage limits.**
 
 ```math
-V^{\min} \le v_i \le V^{\max}, \qquad \forall i \in \mathcal{B} \tag{10}
+V^{\min} \le v_i \le V^{\max}, \qquad \forall i \in \mathcal{B} \tag{23}
 ```
 
 **Convergence.** After each solve, the residual of the *exact* (not linearised) loss
@@ -512,7 +926,7 @@ identity is measured, and the loop repeats with a refreshed ``\circ`` point unti
 ```math
 \max_{(i,j),\,t}\;\Big|\,(v_i^{\mathrm{re}} - v_j^{\mathrm{re}})I_{ij}^{\mathrm{re}}
  + (v_i^{\mathrm{im}} - v_j^{\mathrm{im}})I_{ij}^{\mathrm{im}} - P^{\mathrm{loss}}_{ij}\Big| \;<\; \epsilon,
-\qquad \epsilon = 10^{-6} \tag{11}
+\qquad \epsilon = 10^{-6} \tag{24}
 ```
 
 Checking against the true nonlinear relation is what makes the converged point a genuine
@@ -592,7 +1006,7 @@ p_j^{G} - p_j^{L} &= \sum_{k:(j,k)\in\mathcal{L}} P_{jk} \;-\; \sum_{i:(i,j)\in\
 q_j^{G} - q_j^{L} &= \sum_{k:(j,k)\in\mathcal{L}} Q_{jk} \;-\; \sum_{i:(i,j)\in\mathcal{L}} Q_{ij}\\
 v_j &= v_i + \Delta v_{ij}\\
 \Delta v_{ij} &= -\,\frac{R_{ij}P_{ij} + X_{ij}Q_{ij}}{V^{\mathrm{nom}}}
-\end{aligned} \tag{12}
+\end{aligned} \tag{25}
 ```
 
 Four equations, all linear, with the slack fixed at ``v_0 = V^{\mathrm{nom}}``. That is
@@ -631,7 +1045,7 @@ different package.
 
 **What changes for the solve:**
 
-**Table 4.** What changes between the two single-phase hosts.
+**Table 5.** What changes between the two single-phase hosts.
 
 | | LinDistFlow | IVACOPF (used here) |
 |:--|:--|:--|
@@ -658,7 +1072,7 @@ power-flow sweep, so the first linearisation is taken about a point that is alre
 solve_dopf(case, Gurobi.Optimizer; method = :lambda, warm_start = :lindistflow)
 ```
 
-**Table 5.** Warm-starting IVACOPF from LinDistFlow: fewer passes, same answer.
+**Table 6.** Warm-starting IVACOPF from LinDistFlow: fewer passes, same answer.
 
 | start | passes | total solve | curtailed |
 |:--|--:|--:|--:|
@@ -678,7 +1092,7 @@ resolution, 96 time steps.
 Three photovoltaic (PV) systems with smart inverters sit at buses 7, 18 and 33. Loads follow separate
 industrial, commercial and residential shapes; PV follows a clear-sky irradiance profile.
 
-**Table 6.** The three smart inverters of the single-phase case study on the IEEE 33-bus feeder [[2]](#ref-2): array rating, inverter rating and the resulting reactive capability ``\bar q``.
+**Table 7.** The three smart inverters of the single-phase case study on the IEEE 33-bus feeder [[2]](#ref-2): array rating, inverter rating and the resulting reactive capability ``\bar q``.
 
 ```@example tut
 inverter_table()   # hide
@@ -721,7 +1135,7 @@ constraints, tightening as ``k`` grows:
 
 ```math
 -s_i^{G} \;\le\; \cos(\ell\phi)\, p_i^{G} + \sin(\ell\phi)\, q_i^{G} \;\le\; s_i^{G},
-\qquad \phi = \frac{\pi}{k}, \quad \ell = 1,\dots,k, \quad \forall i \in \mathcal{G} \tag{13}
+\qquad \phi = \frac{\pi}{k}, \quad \ell = 1,\dots,k, \quad \forall i \in \mathcal{G} \tag{26}
 ```
 
 with ``k = 16`` here, giving a 32-vertex polygon. Because the inverter is oversized
@@ -734,7 +1148,7 @@ time step, by the available irradiance ``G(t)``; reactive output by the inverter
 ```math
 0 \;\le\; p_i^{G} \;\le\; p_i^{G,\max}(t) = \bar p_i\, G(t) \;\le\; \bar p_i,
 \qquad
-q_i^{G} \;\le\; \bar q_i \tag{14}
+q_i^{G} \;\le\; \bar q_i \tag{27}
 ```
 
 **Curtailment and the objective.** Curtailment is the shortfall against what was
@@ -743,7 +1157,7 @@ available, and the objective is its total over all inverters and all time steps:
 ```math
 \mathrm{PVC}_i(t) = p_i^{G,\max}(t) - p_i^{G}(t) \;\ge\; 0,
 \qquad
-\min \;\sum_{i \in \mathcal{G}} \sum_{t} \mathrm{PVC}_i(t) \tag{15}
+\min \;\sum_{i \in \mathcal{G}} \sum_{t} \mathrm{PVC}_i(t) \tag{28}
 ```
 
 This is objective ``OF_1`` of [[6]](#ref-6). Note what is *not* a decision here: ``q_i^G`` never
@@ -785,7 +1199,7 @@ Wherever this page compares a dispatch against "the exact AC solution", the refe
 **backward/forward sweep** power flow [[13]](#ref-13): no linearisation, iterated to a
 fixed point for the given injections. It appears twice in the package:
 
-**Table 7.** The exact AC reference used to audit a solved dispatch.
+**Table 8.** The exact AC reference used to audit a solved dispatch.
 
 | function | what it does |
 |:--|:--|
@@ -816,7 +1230,7 @@ count(<(case.Vmin), Vtrue) + count(>(case.Vmax), Vtrue)         # real limit vio
 a standalone script in
 [`examples/single_phase/`](https://github.com/ra-emami/SmartInverterDOPF.jl/tree/main/examples/single_phase):
 
-**Table 8.** The six single-phase example scripts, one per host and encoding.
+**Table 9.** The six single-phase example scripts, one per host and encoding.
 
 | | Big-M | Lambda / SOS2 | Heaviside |
 |:--|:--|:--|:--|
@@ -826,413 +1240,6 @@ a standalone script in
 ```bash
 julia --project=examples/single_phase examples/single_phase/ivacopf_lambda.jl
 ```
-
-## Method A — Big-M
-
-*Following Savasci, Inaolaji and Paudyal [[5]](#ref-5), where this formulation was introduced for
-a second-order-cone DOPF; also Chapter 4 of Inaolaji's dissertation [[9]](#ref-9).*
-
-**The idea in one sentence.** Give every segment its own on/off switch, and write
-constraints that are *switched off*, made trivially true, whenever their segment is
-not the active one.
-
-That switching-off is what "big-M" means. Take any constraint you want to enforce only
-when a binary ``\delta`` equals 1, and add ``M(1-\delta)`` to its right-hand side. If
-``\delta = 1`` the added term vanishes and the constraint bites. If ``\delta = 0`` the
-right-hand side becomes so large that the constraint cannot possibly be violated; it is
-still *present* in the model, but it no longer restricts anything. One constant, ``M``,
-buys you an if-statement.
-
-**Step 1: exactly one segment is active.** Introduce a binary ``\delta_b`` for each of
-the five segments and require
-
-```math
-\sum_{b=1}^{5}\delta_{b}=1 . \tag{16}
-```
-
-**Step 2: each switch owns a voltage window.** If segment ``b`` is the active one, then
-``v_i`` must lie in that segment's voltage range ``[V^{\text{bp}}_{b},
-V^{\text{bp}}_{b+1}]``. In big-M form that is one two-sided inequality per segment, and
-writing all five out gives the complete window system:
-
-```math
-\begin{aligned}
--(1-\delta_{1})M + V_i^{l}\;\; &\le v_i \le\;\; V^{\text{bp}}_{2} + (1-\delta_{1})M\\
--(1-\delta_{2})M + V^{\text{bp}}_{2} &\le v_i \le\;\; V^{\text{bp}}_{3} + (1-\delta_{2})M\\
--(1-\delta_{3})M + V^{\text{bp}}_{3} &\le v_i \le\;\; V^{\text{bp}}_{4} + (1-\delta_{3})M\\
--(1-\delta_{4})M + V^{\text{bp}}_{4} &\le v_i \le\;\; V^{\text{bp}}_{5} + (1-\delta_{4})M\\
--(1-\delta_{5})M + V^{\text{bp}}_{5} &\le v_i \le\;\; V_i^{u} + (1-\delta_{5})M
-\end{aligned} \tag{17}
-```
-
-Each row is vacuous when its ``\delta_b = 0`` and binding when ``\delta_b = 1``, so
-together with Step 1 the solver is forced to pick the segment that genuinely contains
-``v_i``. Note the two outer rows: the first segment is bounded below by the variable's own
-lower bound ``V_i^{l}`` and the last above by ``V_i^{u}``, rather than by
-``V^{\text{bp}}_{1}`` and ``V^{\text{bp}}_{6}``. That keeps the model feasible if ``v_i``
-ever sits outside the range the curve was drawn over; the saturated laws simply continue
-to apply.
-
-**Step 3: assemble the droop law, and watch it turn nonlinear.** With the switches in
-place, ``q_i^G`` is just the sum of the five segment laws, each weighted by its own
-binary. Segments 1, 3 and 5 contribute constants (``\bar q_i``, ``0``, ``-\bar q_i``);
-the two sloped segments contribute their affine laws, written in slope–intercept form:
-
-```math
-q_i^G \;=\; \delta_1\,\bar q_i
-\;+\; \delta_2\!\left(\alpha_1 v_i + \frac{\bar q_i V^{\text{bp}}_3}{V^{\text{bp}}_3 - V^{\text{bp}}_2}\right)
-\;+\; \delta_3\cdot 0
-\;+\; \delta_4\!\left(\alpha_2 v_i + \frac{\bar q_i V^{\text{bp}}_4}{V^{\text{bp}}_5 - V^{\text{bp}}_4}\right)
-\;+\; \delta_5\left(-\bar q_i\right) \tag{18}
-```
-
-with slopes ``\alpha_1 = -\bar q_i/(V^{\text{bp}}_3-V^{\text{bp}}_2)`` and
-``\alpha_2 = -\bar q_i/(V^{\text{bp}}_5-V^{\text{bp}}_4)``.
-
-This is a correct statement of the curve: exactly one ``\delta_b`` equals 1, so exactly
-one bracket survives and ``q_i^G`` takes that segment's value. But it is **not linear**.
-Multiply the two sloped brackets out and the offending terms appear:
-
-```math
-\underbrace{\delta_2\,\alpha_1 v_i}_{\text{bilinear}} \qquad\text{and}\qquad
-\underbrace{\delta_4\,\alpha_2 v_i}_{\text{bilinear}}
-```
-
-Each is a **product of two decision variables**: one binary, one continuous. Everything
-else in the expression is a variable times a constant. So the whole difficulty of the
-Big-M formulation reduces to these two products, and if they can be removed the model
-becomes a plain MILP.
-
-**Step 4: remove the two products, exactly.** The saving grace is that ``\delta_b`` is
-binary rather than merely continuous, and ``v_i`` is bounded. Under those two conditions
-each product can be replaced by a new continuous variable ``W_b := \delta_b v_i`` and
-four linear inequalities, with **no approximation whatsoever**:
-
-```math
--M(1-\delta_b) \;\le\; v_i - W_b \;\le\; M(1-\delta_b), \qquad
-V^{\text{bp}}_{b}\,\delta_b \;\le\; W_b \;\le\; V^{\text{bp}}_{b+1}\,\delta_b . \tag{19}
-```
-
-Check the two cases and the exactness is immediate. If ``\delta_b = 1``, the left pair
-forces ``W_b = v_i`` and the right pair confines ``v_i`` to the segment. If
-``\delta_b = 0``, the right pair forces ``W_b = 0`` (both bounds collapse to zero) while
-the left pair goes slack. Either way ``W_b`` equals ``\delta_b v_i`` exactly: this is a
-reformulation, not a relaxation.
-
-Only segments 2 and 4 need this treatment, and for those the ``W_b`` bounds already pin
-``v_i`` into the segment, so their Step-2 window rows are replaced rather than added to.
-The complete constraint system for the Big-M droop is therefore:
-
-```math
-\begin{aligned}
--(1-\delta_{1})M + V_i^{l}\;\; &\le v_i \le\; V^{\text{bp}}_{2} + (1-\delta_{1})M\\[2pt]
--M(1-\delta_{2}) \;&\le\; v_i - W_{2} \;\le\; (1-\delta_{2})M\\
-V^{\text{bp}}_{2}\,\delta_{2} \;&\le\; W_{2} \;\le\; V^{\text{bp}}_{3}\,\delta_{2}\\[2pt]
--(1-\delta_{3})M + V^{\text{bp}}_{3} &\le v_i \le\; V^{\text{bp}}_{4} + (1-\delta_{3})M\\[2pt]
--M(1-\delta_{4}) \;&\le\; v_i - W_{4} \;\le\; (1-\delta_{4})M\\
-V^{\text{bp}}_{4}\,\delta_{4} \;&\le\; W_{4} \;\le\; V^{\text{bp}}_{5}\,\delta_{4}\\[2pt]
--(1-\delta_{5})M + V^{\text{bp}}_{5} &\le v_i \le\; V_i^{u} + (1-\delta_{5})M
-\end{aligned} \tag{20}
-```
-
-Read alongside the Step-2 system, the change is visible: rows 2 and 4, the sloped
-segments, have each become a ``W`` definition plus a ``W`` range, while the three flat
-segments keep their original windows unchanged.
-
-Now substitute ``\delta_2 v_i \to W_2`` and ``\delta_4 v_i \to W_4`` in the Step 3
-expression. Nothing else changes, and the droop law becomes a single **linear** equation
-in which every coefficient is a constant:
-
-```math
-q_i^G = \delta_1\bar q_i
-      + \alpha_1 W_2 + \delta_2\frac{\bar q_i V^{\text{bp}}_3}{V^{\text{bp}}_3 - V^{\text{bp}}_2}
-      + \alpha_2 W_4 + \delta_4\frac{\bar q_i V^{\text{bp}}_4}{V^{\text{bp}}_5 - V^{\text{bp}}_4}
-      - \delta_5\bar q_i \tag{21}
-```
-
-Compare it with the Step 3 version: the two bracketed sloped terms have simply been split
-into a ``W`` term and a ``\delta`` term. That substitution is the entire content of the
-Big-M droop model.
-
-In JuMP:
-
-```julia
-@variable(model, δ[1:5, DG_SET, HOUR_SET, QUARTER_SET], Bin)
-@variable(model, W2[DG_SET, HOUR_SET, QUARTER_SET])
-@variable(model, W4[DG_SET, HOUR_SET, QUARTER_SET])
-
-@constraint(model, [d in DG_SET, h in HOUR_SET, m in QUARTER_SET],
-    sum(δ[i, d, h, m] for i in 1:5) == 1)
-
-# flat segments 1, 3, 5: the binary only switches on a voltage window
-for (i, lo, hi) in ((1, 1, 2), (3, 3, 4), (5, 5, 6))
-    @constraint(model, [d in DG_SET, h in HOUR_SET, m in QUARTER_SET],
-        v[d, h, m] >= Vbp[lo] - Mbig * (1 - δ[i, d, h, m]))
-    @constraint(model, [d in DG_SET, h in HOUR_SET, m in QUARTER_SET],
-        v[d, h, m] <= Vbp[hi] + Mbig * (1 - δ[i, d, h, m]))
-end
-
-# sloped segments 2 and 4: W = δ·v, whose bounds double as the window
-for (i, W, lo, hi) in ((2, W2, 2, 3), (4, W4, 4, 5))
-    @constraint(model, [d in DG_SET, h in HOUR_SET, m in QUARTER_SET],
-        v[d, h, m] - W[d, h, m] >= -Mbig * (1 - δ[i, d, h, m]))
-    @constraint(model, [d in DG_SET, h in HOUR_SET, m in QUARTER_SET],
-        v[d, h, m] - W[d, h, m] <=  Mbig * (1 - δ[i, d, h, m]))
-    @constraint(model, [d in DG_SET, h in HOUR_SET, m in QUARTER_SET],
-        W[d, h, m] >= Vbp[lo] * δ[i, d, h, m])
-    @constraint(model, [d in DG_SET, h in HOUR_SET, m in QUARTER_SET],
-        W[d, h, m] <= Vbp[hi] * δ[i, d, h, m])
-end
-```
-
-!!! tip "Choose M as tightly as you can justify"
-    ``M`` only has to dominate the largest possible violation of a deactivated
-    constraint, which here is set by the voltage bounds. A needlessly large ``M`` leaves
-    the LP relaxation loose, the branch-and-bound tree deep, and the solve slow. The
-    value used here is `1.1`.
-
-The cost of exactness is bookkeeping: five binaries per inverter per time step, plus two
-auxiliary continuous variables.
-
-## Method B — Lambda / SOS2
-
-*Following Inaolaji, Savasci and Paudyal [[6]](#ref-6) and its three-phase extension [[7]](#ref-7), which
-apply the classical lambda method to Volt-VAr and Volt-Watt droops on a LinDistFlow
-host; see also Chapter 5 of [[9]](#ref-9).*
-
-**The idea in one sentence.** Instead of asking *which segment am I on*, describe the
-operating point directly as a blend of two neighbouring breakpoints.
-
-Big-M starts from the case distinction and works to make it linear. Lambda never forms
-the case distinction at all. It uses a fact about piecewise-linear curves: **every point
-on the curve is a weighted average of two adjacent breakpoints**, and nothing else is.
-
-So attach a weight ``\lambda_b \ge 0`` to each of the six breakpoints, make the weights
-sum to one, and build *both* coordinates from the same weights:
-
-```math
-v_i = \sum_{b=1}^{6}\lambda_b V^{\text{bp}}_b, \qquad
-q_i^G = \sum_{b=1}^{6}\lambda_b q^{\text{bp}}_b, \qquad
-\sum_{b=1}^{6}\lambda_b = 1, \qquad \lambda_b \ge 0 . \tag{22}
-```
-
-The single shared ``\lambda`` is the whole trick. Because one set of weights generates
-the voltage *and* the reactive power, the pair ``(v_i, q_i^G)`` cannot drift off the
-curve: move the weights and both coordinates slide together along it. Both
-``V^{\text{bp}}_b`` and ``q^{\text{bp}}_b`` are constants, so these are ordinary linear
-constraints, and no ``M`` needs choosing anywhere.
-
-**The catch.** As written, the weights describe the *convex hull* of the six
-breakpoints, not the curve. Nothing yet stops the solver putting weight on ``\lambda_1``
-and ``\lambda_5`` simultaneously, which lands the operating point somewhere in the
-interior of that hull, a ``(v, q)`` pair the inverter would never produce. Since
-interior points give the optimiser more reactive power at a given voltage than the real
-device offers, it will happily take them.
-
-**The fix** is the classical **SOS2** condition: at most two weights may be nonzero, and
-they must be *adjacent*. That is exactly the "blend of two neighbouring breakpoints"
-statement, imposed rather than hoped for. Introduce one binary ``z_b`` per segment,
-five of them for six breakpoints, and write, in full:
-
-```math
-\begin{aligned}
-\lambda_1 &\le z_1\\
-\lambda_2 &\le z_1 + z_2\\
-\lambda_3 &\le z_2 + z_3\\
-\lambda_4 &\le z_3 + z_4\\
-\lambda_5 &\le z_4 + z_5\\
-\lambda_6 &\le z_5\\[2pt]
-\sum_{b=1}^{5} z_b &= 1, \qquad z_b \in \{0,1\}
-\end{aligned} \tag{23}
-```
-
-Read it as: ``z_b = 1`` names the active segment; a weight ``\lambda_b`` is allowed to be
-nonzero only if breakpoint ``b`` is an endpoint of that segment. Since exactly one
-``z_b`` is 1, precisely two adjacent weights survive and every other weight is forced to
-zero. The blend is back on the curve.
-
-Trace one case to see it work. Suppose ``z_3 = 1`` and every other ``z_b = 0``. Rows 1, 2
-and 6 then force ``\lambda_1 = \lambda_2 = \lambda_6 = 0``; row 5 forces
-``\lambda_5 = 0``; and only ``\lambda_3 \le 1`` and ``\lambda_4 \le 1`` survive. With
-``\sum_b \lambda_b = 1`` the operating point is a blend of breakpoints 3 and 4 alone,
-that is, a point on segment 3, the dead-band.
-
-Collecting everything, the complete Lambda droop model is:
-
-```math
-\begin{aligned}
-v_i &= \sum_{b=1}^{6}\lambda_b V^{\text{bp}}_b\\
-q_i^G &= \sum_{b=1}^{6}\lambda_b q^{\text{bp}}_b\\
-\sum_{b=1}^{6}\lambda_b &= 1, \qquad \lambda_b \ge 0\\
-\lambda_1 \le z_1, \quad \lambda_b &\le z_{b-1} + z_b \;\;(b=2,\dots,5), \quad \lambda_6 \le z_5\\
-\sum_{b=1}^{5} z_b &= 1, \qquad z_b \in \{0,1\}
-\end{aligned} \tag{24}
-```
-
-Seven constraint rows and no constant to tune; compare that with the Big-M system above.
-
-Worth noticing what is *absent*: no big-M constant, and no product of a binary with a
-continuous variable. The binaries here only switch other variables off, a much
-better-behaved use of integrality, and the reason this formulation tends to give tighter
-relaxations than Big-M on the same curve.
-
-```julia
-@variable(model, λ[1:6, DG_SET, HOUR_SET, QUARTER_SET] >= 0)
-@variable(model, z[1:5, DG_SET, HOUR_SET, QUARTER_SET], Bin)
-
-@constraint(model, [d in DG_SET, h in HOUR_SET, m in QUARTER_SET],
-    sum(λ[i, d, h, m] for i in 1:6) == 1)
-@constraint(model, [d in DG_SET, h in HOUR_SET, m in QUARTER_SET],
-    sum(z[i, d, h, m] for i in 1:5) == 1)
-@constraint(model, [d in DG_SET, h in HOUR_SET, m in QUARTER_SET],
-    λ[1, d, h, m] <= z[1, d, h, m])
-@constraint(model, [i in 2:5, d in DG_SET, h in HOUR_SET, m in QUARTER_SET],
-    λ[i, d, h, m] <= z[i-1, d, h, m] + z[i, d, h, m])
-@constraint(model, [d in DG_SET, h in HOUR_SET, m in QUARTER_SET],
-    λ[6, d, h, m] <= z[5, d, h, m])
-
-@constraint(model, [d in DG_SET, h in HOUR_SET, m in QUARTER_SET],
-    v[d, h, m] == sum(λ[i, d, h, m] * Vbp[i] for i in 1:6))
-@constraint(model, [d in DG_SET, h in HOUR_SET, m in QUARTER_SET],
-    Qdg[d, h, m] == sum(λ[i, d, h, m] * qpts[d][i] for i in 1:6))
-```
-
-!!! note "SOS2 without the binaries"
-    Most MILP solvers support SOS2 natively via `MOI.SOS2`, which lets the solver
-    branch on the set directly instead of on explicit binaries. The formulation above is
-    written out longhand because it is portable and because it makes the logic visible,
-    which is the point of a tutorial.
-
-The Lambda form has a decisive practical advantage over Big-M once you stop treating the
-curve as fixed. The breakpoint voltages ``V^{\text{bp}}_b`` appear *linearly* here, and in
-only one place. Make them decision variables, so the OPF chooses the curve as well as
-the dispatch, and exactly one product turns bilinear:
-
-```math
-v_i = \sum_{b=1}^{6}\lambda_b V^{\text{bp}}_b \tag{25}
-```
-
-A single, well-understood bilinear term, routinely handled by a McCormick envelope and
-tightened by partitioning the breakpoint range if the relaxation is too loose. The
-reactive equation ``q_i^G = \sum_b \lambda_b q^{\text{bp}}_b`` is untouched, since the
-ordinates stay constant.
-
-Big-M remains exact under the same change (nothing about it stops representing the
-curve), but the nonlinearity it acquires is both more widespread and of a worse kind. The
-slopes ``\alpha_1 = -\bar q_i/(V^{\text{bp}}_3 - V^{\text{bp}}_2)`` and ``\alpha_2`` become
-*rational functions* of the breakpoints, so in the droop law the terms
-``\alpha_1 W_2 + \delta_2\,\bar q_i V^{\text{bp}}_3/(V^{\text{bp}}_3 - V^{\text{bp}}_2)`` and
-their segment-4 counterparts are nonlinear in ``V^{\text{bp}}`` rather than merely
-bilinear; and the segment bounds
-``V^{\text{bp}}_b \delta_b \le W_b \le V^{\text{bp}}_{b+1}\delta_b`` pick up further
-products of breakpoints with binaries. Lambda confines the whole difficulty to one term;
-Big-M spreads it across the droop law *and* the bounds. That is why work on optimised and
-adaptive droop curves is normally built on Lambda [[8]](#ref-8), [[11]](#ref-11).
-
-## Method C — Heaviside
-
-*Following Inaolaji, Savasci and Paudyal [[10]](#ref-10), which introduced this encoding precisely
-to remove the integer variables from the two formulations above, on the same
-current–voltage DOPF host used here; see also Chapter 6 of [[9]](#ref-9).*
-
-**The idea in one sentence.** Keep the case distinction, but write it as arithmetic
-instead of logic, so there is nothing for a solver to branch on.
-
-Both previous methods spend integer variables to answer "which segment?". Integers are
-what make a model combinatorial: the count grows with inverters × time steps, and
-branch-and-bound has to search over them. The motivation in [[10]](#ref-10) is to get rid of them
-altogether, which also makes the model a candidate for real-time use.
-
-The observation is that an "if" is just an on/off switch, and the unit step *is* an
-on/off switch written as a function:
-
-```math
-H(x) = \begin{cases} 1, & x \ge 0\\ 0, & x < 0\end{cases} \tag{26}
-```
-
-Shift it to flip at a breakpoint and subtract two of them, and you get a **window** that
-equals 1 on one segment and 0 everywhere else:
-
-```math
-\mathcal{W}_b(v_i) \;=\; H\!\left(v_i - V^{\text{bp}}_{b}\right) - H\!\left(v_i - V^{\text{bp}}_{b+1}\right) \tag{27}
-```
-
-which is precisely the condition ``V^{\text{bp}}_b \le v_i \le V^{\text{bp}}_{b+1}``: the
-if-else of segment ``b``, written without logic and without binaries. Multiply each
-segment's law by its own window and add them up. The windows are disjoint, so at any
-voltage all but one vanish and the sum collapses to the single active law.
-
-Written out with every window expanded, and with all five segments present so the
-structure is visible:
-
-```math
-\begin{aligned}
-q_i^G \;=\; &\;\;\;\;\bar q_i \big[\,H(v_i - V^{\text{bp}}_1) - H(v_i - V^{\text{bp}}_2)\,\big] \;+\\
-&\;\alpha_1\!\left(v_i - V^{\text{bp}}_3\right)\big[\,H(v_i - V^{\text{bp}}_2) - H(v_i - V^{\text{bp}}_3)\,\big] \;+\\
-&\;\;\;\;0\,\big[\,H(v_i - V^{\text{bp}}_3) - H(v_i - V^{\text{bp}}_4)\,\big] \;+\\
-&\;\alpha_2\!\left(v_i - V^{\text{bp}}_4\right)\big[\,H(v_i - V^{\text{bp}}_4) - H(v_i - V^{\text{bp}}_5)\,\big] \;-\\
-&\;\;\;\;\bar q_i \big[\,H(v_i - V^{\text{bp}}_5) - H(v_i - V^{\text{bp}}_6)\,\big]
-\end{aligned} \tag{28}
-```
-
-with the same slopes as before,
-``\alpha_1 = -\bar q_i/(V^{\text{bp}}_3-V^{\text{bp}}_2)`` and
-``\alpha_2 = -\bar q_i/(V^{\text{bp}}_5-V^{\text{bp}}_4)``.
-
-That is the entire droop model: one equation, no auxiliary variables, no constraint
-system to accompany it. Line 3 is written out only for symmetry; being identically zero,
-it is dropped in the implementation.
-
-
-!!! tip "Anchor each sloped term at its zero crossing"
-    This is the one place where it is easy to get the algebra wrong, so it is worth
-    stating explicitly. A sloped term is written ``\alpha(v_i - V^{\ast})`` where
-    ``V^{\ast}`` is the voltage at which *that segment's* reactive output passes through
-    zero, namely ``V^{\text{bp}}_3`` for segment 2 and ``V^{\text{bp}}_4`` for segment 4.
-
-    Anchoring anywhere else breaks the curve. Anchor segment 2 at ``V^{\text{bp}}_2``
-    instead, for example, and the term evaluates to ``0`` at ``V^{\text{bp}}_2`` where the
-    curve should read ``\bar q_i``, leaving a jump at the breakpoint. With the anchors
-    above, segment 2 gives ``\bar q_i`` at ``V^{\text{bp}}_2`` and ``0`` at
-    ``V^{\text{bp}}_3``, matching the flat segments it joins on either side. The
-    verification section below is what confirms this came out right.
-
-```julia
-Hstep(x) = op_ifelse(op_greater_than_or_equal_to(x, 0), 1.0, 0.0)
-α1 = Dict(d => -qbar[d] / (Vbp[3] - Vbp[2]) for d in DG_SET)
-α2 = Dict(d => -qbar[d] / (Vbp[5] - Vbp[4]) for d in DG_SET)
-
-@constraint(model, [d in DG_SET, h in HOUR_SET, m in QUARTER_SET],
-    Qdg[d, h, m] ==
-        qbar[d] * (Hstep(v[d,h,m] - Vbp[1]) - Hstep(v[d,h,m] - Vbp[2]))
-      + α1[d] * (v[d,h,m] - Vbp[3]) * (Hstep(v[d,h,m] - Vbp[2]) - Hstep(v[d,h,m] - Vbp[3]))
-      + α2[d] * (v[d,h,m] - Vbp[4]) * (Hstep(v[d,h,m] - Vbp[4]) - Hstep(v[d,h,m] - Vbp[5]))
-      - qbar[d] * (Hstep(v[d,h,m] - Vbp[5]) - Hstep(v[d,h,m] - Vbp[6])))
-```
-
-`op_ifelse` and `op_greater_than_or_equal_to` are JuMP's nonlinear operators
-(JuMP ≥ 1.15); they build the expression correctly outside a macro.
-
-No extra variables at all, just one algebraic expression per inverter per time step. The
-price is paid in solver behaviour, and it is not merely theoretical. ``H(\cdot)`` is
-discontinuous, so the derivative is undefined at every breakpoint and the problem is
-non-convex. On this case study Ipopt does reach the same answer as the MILP encodings,
-but the first pass, started from a flat voltage profile, far from the solution, stops
-at `ALMOST_LOCALLY_SOLVED`, short of its own convergence tolerance:
-
-**Table 9.** Successive-linearisation passes for the Heaviside encoding on the IVACOPF host, single-phase case study.
-
-```@example tut
-iteration_table("heaviside")   # hide
-```
-
-Once the linearisation point is close enough that most inverters sit comfortably inside a
-single segment, the later passes converge cleanly. But that first pass is the
-non-smoothness showing up in practice: an interior-point method cannot get reliable
-derivative information at the kinks, and a harder case (more inverters, voltages sitting
-nearer the breakpoints) is where this bites. In production this encoding is normally
-*smoothed*, the step replaced by a sigmoid ``H(x) \approx (1 + e^{-kx})^{-1}``, which
-restores differentiability at the cost of no longer representing the curve exactly.
 
 ## Verification: does the dispatch actually lie on the curve?
 
@@ -1574,6 +1581,91 @@ Both feeders used below are real Electricity North West low-voltage networks fro
 scalability check. The Kron reduction follows [[16]](#ref-16), and the conductor impedances
 are those of [[17]](#ref-17).
 
+## What changes for the droop: one index
+
+Here is the whole three-phase interface, in every encoding:
+
+```julia
+vpv(i, t) = v[PV[i].bus, PV[i].phase, t]     # the voltage inverter i actually senses
+```
+
+A single-phase inverter connected line-to-neutral senses the voltage of *its own phase at
+its own bus*. Nothing in Big-M, Lambda or Heaviside cares whether that terminal is
+identified by a bus, or by a bus and a phase. Each asks the host for one scalar voltage
+variable, and constrains one scalar reactive output against it.
+
+That is why the three droop blocks below are the same algebra as their single-phase
+counterparts, with `v[d,h,m]` replaced by `vpv(i,t)`, and why the *same* three blocks
+drop unchanged into either of the two hosts below. In LinDist3Flow `v` is a decision
+variable directly; in the three-phase IVACOPF it is a linearised voltage magnitude. The
+droop neither knows nor cares.
+
+**Lambda / SOS2**: weights shared between the sensed voltage and the reactive output:
+
+```julia
+@variable(model, λ[1:6, 1:npv, 1:T] >= 0)
+@variable(model, z[1:5, 1:npv, 1:T], Bin)
+
+@constraint(model, [i in 1:npv, t in 1:T], sum(λ[j, i, t] for j in 1:6) == 1)
+@constraint(model, [i in 1:npv, t in 1:T], sum(z[j, i, t] for j in 1:5) == 1)
+@constraint(model, [i in 1:npv, t in 1:T], λ[1, i, t] <= z[1, i, t])
+@constraint(model, [j in 2:5, i in 1:npv, t in 1:T], λ[j, i, t] <= z[j-1, i, t] + z[j, i, t])
+@constraint(model, [i in 1:npv, t in 1:T], λ[6, i, t] <= z[5, i, t])
+
+@constraint(model, [i in 1:npv, t in 1:T], vpv(i, t) == sum(λ[j,i,t] * VBP[j] for j in 1:6))
+@constraint(model, [i in 1:npv, t in 1:T],
+    Qdg[i, t] == sum(λ[j,i,t] * QSHAPE[j] * PV[i].Smax for j in 1:6))
+```
+
+**Big-M**: one binary per segment, with ``W = \delta v`` linearising the products:
+
+```julia
+Mbig = 1.1
+@variable(model, δ[1:5, 1:npv, 1:T], Bin)
+@variable(model, W2[1:npv, 1:T]); @variable(model, W4[1:npv, 1:T])
+
+@constraint(model, [i in 1:npv, t in 1:T], sum(δ[j, i, t] for j in 1:5) == 1)
+
+for (j, lo, hi) in ((1, 1, 2), (3, 3, 4), (5, 5, 6))          # flat segments
+    @constraint(model, [i in 1:npv, t in 1:T], vpv(i,t) >= VBP[lo] - Mbig * (1 - δ[j,i,t]))
+    @constraint(model, [i in 1:npv, t in 1:T], vpv(i,t) <= VBP[hi] + Mbig * (1 - δ[j,i,t]))
+end
+for (j, W, lo, hi) in ((2, W2, 2, 3), (4, W4, 4, 5))          # sloped segments
+    @constraint(model, [i in 1:npv, t in 1:T], vpv(i,t) - W[i,t] >= -Mbig * (1 - δ[j,i,t]))
+    @constraint(model, [i in 1:npv, t in 1:T], vpv(i,t) - W[i,t] <=  Mbig * (1 - δ[j,i,t]))
+    @constraint(model, [i in 1:npv, t in 1:T], W[i,t] >= VBP[lo] * δ[j,i,t])
+    @constraint(model, [i in 1:npv, t in 1:T], W[i,t] <= VBP[hi] * δ[j,i,t])
+end
+
+@constraint(model, [i in 1:npv, t in 1:T],
+    Qdg[i,t] == δ[1,i,t] * PV[i].Smax
+              + W2[i,t] * (-PV[i].Smax / (VBP[3] - VBP[2]))
+              + δ[2,i,t] * (PV[i].Smax * VBP[3] / (VBP[3] - VBP[2]))
+              + W4[i,t] * (-PV[i].Smax / (VBP[5] - VBP[4]))
+              + δ[4,i,t] * (PV[i].Smax * VBP[4] / (VBP[5] - VBP[4]))
+              - δ[5,i,t] * PV[i].Smax)
+```
+
+**Heaviside**: one closed-form masked sum, no new variables at all:
+
+```julia
+Hstep(x) = op_ifelse(op_greater_than_or_equal_to(x, 0), 1.0, 0.0)
+
+@constraint(model, [i in 1:npv, t in 1:T],
+    Qdg[i,t] ==
+        PV[i].Smax * (Hstep(vpv(i,t) - VBP[1]) - Hstep(vpv(i,t) - VBP[2]))
+      + (-PV[i].Smax / (VBP[3] - VBP[2])) * (vpv(i,t) - VBP[3]) *
+            (Hstep(vpv(i,t) - VBP[2]) - Hstep(vpv(i,t) - VBP[3]))
+      + (-PV[i].Smax / (VBP[5] - VBP[4])) * (vpv(i,t) - VBP[4]) *
+            (Hstep(vpv(i,t) - VBP[4]) - Hstep(vpv(i,t) - VBP[5]))
+      - PV[i].Smax * (Hstep(vpv(i,t) - VBP[5]) - Hstep(vpv(i,t) - VBP[6])))
+```
+
+Compare these with Methods A, B and C above: the algebra is identical. What has grown is
+the *count*: the binaries in Big-M and Lambda now scale with inverters × time steps on a
+feeder that may carry a single-phase inverter at every service connection, which is where
+the integer-free encoding starts to look attractive.
+
 ## The three-phase hosts
 
 The droop needs a host, and this tutorial provides two three-phase ones, deliberately,
@@ -1588,8 +1680,8 @@ makes the separation between *encoding* and *host* measurable rather than merely
 | `IVACOPF3Ph_*.jl` | **IVACOPF**: three-phase current-voltage AC-OPF [[4]](#ref-4) | near-exact AC | successive linearisation, iterated |
 
 Both are set out in full below, briefly, because the subject of this page is the droop
-rather than the network model, and both carry the same three droop blocks, the same feeder, the
-same fleet and the same objective. Everything that is *shared* between them, the inverter
+rather than the network model, and both carry the three droop blocks just written, the
+same feeder, the same fleet and the same objective. Everything that is *shared* between them, the inverter
 model, is stated once:
 
 ```math
@@ -1978,90 +2070,6 @@ backward/forward sweep per time step, at full PV and zero VArs, which costs a fe
 and hands the first linearisation a physically consistent state instead of a guess. This
 is the three-phase analogue of the package's `warm_start = :lindistflow`, and the same
 sweep is reused afterwards to audit the answer.
-
-## What changes for the droop: one index
-
-Here is the whole three-phase interface, in every encoding:
-
-```julia
-vpv(i, t) = v[PV[i].bus, PV[i].phase, t]     # the voltage inverter i actually senses
-```
-
-A single-phase inverter connected line-to-neutral senses the voltage of *its own phase at
-its own bus*. Nothing in Big-M, Lambda or Heaviside cares whether that terminal is
-identified by a bus, or by a bus and a phase. Each asks the host for one scalar voltage
-variable, and constrains one scalar reactive output against it.
-
-That is why the three droop blocks below are the same algebra as their single-phase
-counterparts, with `v[d,h,m]` replaced by `vpv(i,t)`, and why the *same* three blocks
-drop unchanged into either host. In LinDist3Flow `v` is a decision variable directly; in
-IVACOPF it is the linearised magnitude (40). The droop neither knows nor cares.
-
-**Lambda / SOS2**: weights shared between the sensed voltage and the reactive output:
-
-```julia
-@variable(model, λ[1:6, 1:npv, 1:T] >= 0)
-@variable(model, z[1:5, 1:npv, 1:T], Bin)
-
-@constraint(model, [i in 1:npv, t in 1:T], sum(λ[j, i, t] for j in 1:6) == 1)
-@constraint(model, [i in 1:npv, t in 1:T], sum(z[j, i, t] for j in 1:5) == 1)
-@constraint(model, [i in 1:npv, t in 1:T], λ[1, i, t] <= z[1, i, t])
-@constraint(model, [j in 2:5, i in 1:npv, t in 1:T], λ[j, i, t] <= z[j-1, i, t] + z[j, i, t])
-@constraint(model, [i in 1:npv, t in 1:T], λ[6, i, t] <= z[5, i, t])
-
-@constraint(model, [i in 1:npv, t in 1:T], vpv(i, t) == sum(λ[j,i,t] * VBP[j] for j in 1:6))
-@constraint(model, [i in 1:npv, t in 1:T],
-    Qdg[i, t] == sum(λ[j,i,t] * QSHAPE[j] * PV[i].Smax for j in 1:6))
-```
-
-**Big-M**: one binary per segment, with ``W = \delta v`` linearising the products:
-
-```julia
-Mbig = 1.1
-@variable(model, δ[1:5, 1:npv, 1:T], Bin)
-@variable(model, W2[1:npv, 1:T]); @variable(model, W4[1:npv, 1:T])
-
-@constraint(model, [i in 1:npv, t in 1:T], sum(δ[j, i, t] for j in 1:5) == 1)
-
-for (j, lo, hi) in ((1, 1, 2), (3, 3, 4), (5, 5, 6))          # flat segments
-    @constraint(model, [i in 1:npv, t in 1:T], vpv(i,t) >= VBP[lo] - Mbig * (1 - δ[j,i,t]))
-    @constraint(model, [i in 1:npv, t in 1:T], vpv(i,t) <= VBP[hi] + Mbig * (1 - δ[j,i,t]))
-end
-for (j, W, lo, hi) in ((2, W2, 2, 3), (4, W4, 4, 5))          # sloped segments
-    @constraint(model, [i in 1:npv, t in 1:T], vpv(i,t) - W[i,t] >= -Mbig * (1 - δ[j,i,t]))
-    @constraint(model, [i in 1:npv, t in 1:T], vpv(i,t) - W[i,t] <=  Mbig * (1 - δ[j,i,t]))
-    @constraint(model, [i in 1:npv, t in 1:T], W[i,t] >= VBP[lo] * δ[j,i,t])
-    @constraint(model, [i in 1:npv, t in 1:T], W[i,t] <= VBP[hi] * δ[j,i,t])
-end
-
-@constraint(model, [i in 1:npv, t in 1:T],
-    Qdg[i,t] == δ[1,i,t] * PV[i].Smax
-              + W2[i,t] * (-PV[i].Smax / (VBP[3] - VBP[2]))
-              + δ[2,i,t] * (PV[i].Smax * VBP[3] / (VBP[3] - VBP[2]))
-              + W4[i,t] * (-PV[i].Smax / (VBP[5] - VBP[4]))
-              + δ[4,i,t] * (PV[i].Smax * VBP[4] / (VBP[5] - VBP[4]))
-              - δ[5,i,t] * PV[i].Smax)
-```
-
-**Heaviside**: one closed-form masked sum, no new variables at all:
-
-```julia
-Hstep(x) = op_ifelse(op_greater_than_or_equal_to(x, 0), 1.0, 0.0)
-
-@constraint(model, [i in 1:npv, t in 1:T],
-    Qdg[i,t] ==
-        PV[i].Smax * (Hstep(vpv(i,t) - VBP[1]) - Hstep(vpv(i,t) - VBP[2]))
-      + (-PV[i].Smax / (VBP[3] - VBP[2])) * (vpv(i,t) - VBP[3]) *
-            (Hstep(vpv(i,t) - VBP[2]) - Hstep(vpv(i,t) - VBP[3]))
-      + (-PV[i].Smax / (VBP[5] - VBP[4])) * (vpv(i,t) - VBP[4]) *
-            (Hstep(vpv(i,t) - VBP[4]) - Hstep(vpv(i,t) - VBP[5]))
-      - PV[i].Smax * (Hstep(vpv(i,t) - VBP[5]) - Hstep(vpv(i,t) - VBP[6])))
-```
-
-Compare these with Methods A, B and C above: the algebra is identical. What has grown is
-the *count*: the binaries in Big-M and Lambda now scale with inverters × time steps on a
-feeder that may carry a single-phase inverter at every service connection, which is where
-the integer-free encoding starts to look attractive.
 
 ## The three-phase case study
 
