@@ -15,19 +15,102 @@ and an exact AC power flow decides between them.
 
 **[Read the tutorial →](https://ra-emami.github.io/SmartInverterDOPF.jl/dev/tutorial_voltvar/)**
 
-## Quick start
+## Prerequisites
+
+### Getting Julia
+
+This package requires **Julia 1.10 or newer**, and is tested on 1.10 and on the current
+release. If you do not have Julia yet, install it with
+[juliaup](https://github.com/JuliaLang/juliaup), or via the
+[Microsoft Store](https://apps.microsoft.com/detail/9NJNWW8PVKMN) (or
+`winget install julia -s msstore`) on Windows, or with
+`curl -fsSL https://install.julialang.org | sh` on macOS and Linux.
+
+Alternatively, take an installer from
+[julialang.org/downloads](https://julialang.org/downloads/).
+
+### Choosing an environment
+
+Julia installs packages into an *environment*, and a fresh environment starts out empty.
+Plain `julia` uses the shared default environment; `julia --project=.` uses the one
+described by the `Project.toml` in the current directory.
+
+Every folder in this repository that runs code ships its own `Project.toml`, so its
+dependencies are already declared and one command installs them. From the repository
+root:
+
+```bash
+julia --project=examples/single_phase -e 'using Pkg; Pkg.develop(PackageSpec(path=".")); Pkg.instantiate()'
+julia --project=examples/three_phase  -e 'using Pkg; Pkg.instantiate()'
+julia --project=scripts               -e 'using Pkg; Pkg.develop(PackageSpec(path=".")); Pkg.instantiate()'
+```
+
+The `Pkg.develop` step is there because those environments depend on this package, which
+is not in the registry; the three-phase scripts are standalone and do not need it. The
+sections below matter mainly when you are assembling an environment of your own.
+
+### Packages
+
+`SmartInverterDOPF` is not in the General registry, Julia's default package catalogue,
+so it has to be installed from its Git URL:
 
 ```julia
 using Pkg
 Pkg.add(url = "https://github.com/ra-emami/SmartInverterDOPF.jl")
-Pkg.add(["Gurobi", "Ipopt"])                    # solvers
-Pkg.add(["JuMP", "JSON3", "Plots", "Printf"])   # modelling, case files, figures, tables
 ```
 
-Every package a `using` line names has to be installed into the active environment
-first, not only the solvers. The tutorial's
+All the other packages are in the General registry, so they can be added by name:
+
+```julia
+Pkg.add(["JuMP", "JSON3", "Plots"])                             # modelling, data, figures
+Pkg.add(["Printf", "Markdown", "LinearAlgebra", "Statistics"])  # standard library
+```
+
+| package | what it is for |
+|:--|:--|
+| `JuMP` | the modelling layer every formulation on this page is written in |
+| `JSON3` | reading the feeder, load and irradiance files, and the committed results |
+| `Plots` | every figure |
+| `Printf`, `Markdown` | formatting the printed output and the tables |
+| `LinearAlgebra` | the 3×3 phase impedances in the three-phase scripts |
+| `Statistics` | the test suite |
+
+The last four ship with Julia, but a project environment still has to add them before
+`using` will find them. Make sure all of this is installed in the same environment you
+run the code from. `Pkg.status()` lists what the active environment already has, and a
+`using` line that raises `ArgumentError: Package X not found` means `Pkg.add("X")` has
+not been run for it.
+
+### Solvers
+
+Two of the three encodings produce a mixed-integer linear program (MILP) and need an MILP
+solver; the third produces a nonlinear program (NLP) and needs an NLP solver. Both
+solvers used here are in the General registry:
+
+```julia
+Pkg.add(["Gurobi", "Ipopt"])
+```
+
+| encoding | model class | solver used here |
+|:--|:--|:--|
+| `:bigm`, `:lambda` | MILP | Gurobi |
+| `:heaviside` | NLP | Ipopt |
+
+Gurobi is commercial and needs a licence in place before `Gurobi.jl` will build, and is
+[free for academic users](https://www.gurobi.com/academia/academic-program-and-licenses/).
+Ipopt is open source and needs no licence, so the `:heaviside` route runs with no
+commercial software at all.
+
+> **On open-source MILP solvers.** We also tried HiGHS and GLPK on this model and neither
+> worked out: one returned an infeasible status inside the successive-linearisation loop,
+> the other was too slow to finish. The committed results use Gurobi. If no MILP licence
+> is available, the `:heaviside` encoding needs only Ipopt and reaches the same answer.
+
+The tutorial's
 [Prerequisites](https://ra-emami.github.io/SmartInverterDOPF.jl/dev/tutorial_voltvar/#Prerequisites)
-section lists the full set.
+section covers the same ground.
+
+## Quick start
 
 ```julia
 using SmartInverterDOPF, Gurobi
@@ -38,6 +121,7 @@ res  = solve_dopf(case, Gurobi.Optimizer; method = :lambda)   # host = :ivacopf 
 kWh(case, sum(res.PVC))     # PV energy curtailed over the day, kWh
 extrema(res.V)              # voltage range across the feeder, p.u.
 ```
+
 
 ## The single-phase host models
 
@@ -66,13 +150,6 @@ halves the passes and is ~1.7× faster overall, for the same answer:
 ```julia
 solve_dopf(case, Gurobi.Optimizer; method = :lambda, warm_start = :lindistflow)
 ```
-
-> **Solver note.** The committed results are generated with **Gurobi**, which is
-> [free for academic users](https://www.gurobi.com/academia/academic-program-and-licenses/).
-> We also tried the open-source MILP solvers HiGHS and GLPK; neither worked out. One
-> returned an infeasible status inside the successive-linearisation loop, the other was
-> too slow to finish. If no MILP licence is available, the `:heaviside` encoding needs
-> only Ipopt, which is open source, and reaches the same answer.
 
 ## The three encodings
 

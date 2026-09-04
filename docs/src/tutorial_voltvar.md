@@ -202,42 +202,102 @@ end
 
 ## Prerequisites
 
-Julia with [JuMP](https://jump.dev), a mathematical-programming solver, and this
-package. Two of the three methods produce a mixed-integer linear program (MILP) and need
-an MILP solver; the third produces a nonlinear program (NLP) and needs an NLP solver.
+Everything on this page is Julia: the code blocks run in Julia, and the twelve example
+scripts in the repository are Julia programs. No prior Julia knowledge is assumed, but
+the environment has to be set up before any of it will run.
 
-The solvers are not the whole list. Every package a `using` line names has to be
-installed into the active environment before it can be used, standard-library modules
-included, because a fresh project environment starts out empty. The code on this page and
-in the example scripts reads its case files with JSON3, draws its figures with Plots,
-formats its tables with Printf and Markdown, and the three-phase scripts also use
-LinearAlgebra:
+### Getting Julia
+
+This package requires **Julia 1.10 or newer**, and is tested on 1.10 and on the current
+release. If you do not have Julia yet, install it with
+[juliaup](https://github.com/JuliaLang/juliaup), or via the
+[Microsoft Store](https://apps.microsoft.com/detail/9NJNWW8PVKMN) (or
+`winget install julia -s msstore`) on Windows, or with
+`curl -fsSL https://install.julialang.org | sh` on macOS and Linux.
+
+Alternatively, take an installer from
+[julialang.org/downloads](https://julialang.org/downloads/).
+
+### Choosing an environment
+
+Julia installs packages into an *environment*, and a fresh environment starts out empty.
+Plain `julia` uses the shared default environment; `julia --project=.` uses the one
+described by the `Project.toml` in the current directory.
+
+Every folder in this repository that runs code ships its own `Project.toml`, so its
+dependencies are already declared and one command installs them. From the repository
+root:
+
+```bash
+julia --project=examples/single_phase -e 'using Pkg; Pkg.develop(PackageSpec(path=".")); Pkg.instantiate()'
+julia --project=examples/three_phase  -e 'using Pkg; Pkg.instantiate()'
+julia --project=scripts               -e 'using Pkg; Pkg.develop(PackageSpec(path=".")); Pkg.instantiate()'
+```
+
+The `Pkg.develop` step is there because those environments depend on this package, which
+is not in the registry; the three-phase scripts are standalone and do not need it. The
+sections below matter mainly when you are assembling an environment of your own.
+
+### Packages
+
+`SmartInverterDOPF` is not in the General registry, Julia's default package catalogue,
+so it has to be installed from its Git URL:
 
 ```julia
 using Pkg
-
-Pkg.add(["JuMP", "Gurobi", "Ipopt"])                            # modelling layer, solvers
-Pkg.add(["JSON3", "Plots"])                                     # case files, figures
-Pkg.add(["Printf", "Markdown", "LinearAlgebra", "Statistics"])  # standard library
 Pkg.add(url = "https://github.com/ra-emami/SmartInverterDOPF.jl")
 ```
 
-Add anything else your own scripts call in the same way. `Pkg.status()` lists what the
-active environment already has, and a `using` line that raises `ArgumentError: Package X
-not found` simply means `Pkg.add("X")` has not been run for it yet.
+All the other packages are in the General registry, so they can be added by name:
 
-!!! note "Solvers used here"
-    Everything on this page was produced with **Gurobi** for the two mixed-integer
-    encodings and **Ipopt** for the nonlinear one. Gurobi is commercial, but
-    [free for academic users](https://www.gurobi.com/academia/academic-program-and-licenses/). 
-    Ipopt is open-source.
+```julia
+Pkg.add(["JuMP", "JSON3", "Plots"])                             # modelling, data, figures
+Pkg.add(["Printf", "Markdown", "LinearAlgebra", "Statistics"])  # standard library
+```
 
+| package | what it is for |
+|:--|:--|
+| `JuMP` | the modelling layer every formulation on this page is written in |
+| `JSON3` | reading the feeder, load and irradiance files, and the committed results |
+| `Plots` | every figure |
+| `Printf`, `Markdown` | formatting the printed output and the tables |
+| `LinearAlgebra` | the 3×3 phase impedances in the three-phase scripts |
+| `Statistics` | the test suite |
+
+The last four ship with Julia, but a project environment still has to add them before
+`using` will find them. Make sure all of this is installed in the same environment you
+run the code from. `Pkg.status()` lists what the active environment already has, and a
+`using` line that raises `ArgumentError: Package X not found` means `Pkg.add("X")` has
+not been run for it.
+
+### Solvers
+
+Two of the three encodings produce a mixed-integer linear program (MILP) and need an MILP
+solver; the third produces a nonlinear program (NLP) and needs an NLP solver. Both
+solvers used here are in the General registry:
+
+```julia
+Pkg.add(["Gurobi", "Ipopt"])
+```
+
+| encoding | model class | solver used here |
+|:--|:--|:--|
+| `:bigm`, `:lambda` | MILP | Gurobi |
+| `:heaviside` | NLP | Ipopt |
+
+Gurobi is commercial and needs a licence in place before `Gurobi.jl` will build, and is
+[free for academic users](https://www.gurobi.com/academia/academic-program-and-licenses/).
+Ipopt is open source and needs no licence, so the `:heaviside` route runs with no
+commercial software at all.
+
+!!! note "On open-source MILP solvers"
     We also tried the open-source MILP solvers **HiGHS** and **GLPK** on this model.
     Neither worked out. One returned an infeasible status inside the
-    successive-linearisation loop, the other was too slow to finish. Use Gurobi.
+    successive-linearisation loop, the other was too slow to finish. The results
+    throughout this documentation are produced with Gurobi.
 
     If no MILP solver is available at all, the `:heaviside` encoding needs **only
-    Ipopt**, which is open-source, and reaches the same answer. This could be a practical 
+    Ipopt**, which is open source, and reaches the same answer. That is a practical
     reason to consider an integer-free formulation.
 
 ## Why the curve has to be embedded in the OPF
