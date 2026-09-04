@@ -824,9 +824,7 @@ price is paid in solver behaviour. ``H(\cdot)`` is discontinuous, so the derivat
 undefined at every breakpoint and the problem is non-convex. Two consequences follow: the
 model needs an NLP solver rather than an MILP one, and the non-smoothness is expensive to
 differentiate, which makes this the slowest of the three encodings on the single-phase
-case study and the first to break down as the network grows. In production the step is
-usually *smoothed*, replaced by a sigmoid ``H(x) \approx (1 + e^{-kx})^{-1}``, which
-restores differentiability at the cost of no longer representing the curve exactly.
+case study and the first to break down as the network grows.
 
 ## The single-phase hosts
 
