@@ -3,9 +3,9 @@
 *Modeling Smart Inverters in Distribution Optimal Power Flow*
 
 A smart inverter does not take a reactive-power set-point. It follows a Volt-VAr curve
-based on its own terminal voltage. An OPF that ignores that curve returns a dispatch the
-inverter will never deliver. This package puts the curve inside the optimisation, three
-different ways, on either of two distribution OPF **host** models, and shows that the
+based on its own terminal voltage. A distribution optimal power flow (DOPF) that ignores
+that curve returns a dispatch the inverter will never deliver. This package puts the curve inside the optimisation, three
+different ways, on either of two DOPF **host** models, and shows that the
 encodings agree.
 
 ```julia
@@ -72,7 +72,7 @@ solve_dopf(case, Gurobi.Optimizer; method = :lambda, warm_start = :lindistflow)
 ## What's in the box
 
 - **Two host models**, IVACOPF and LinDistFlow, interchangeable behind one keyword.
-- The **IEEE 33-bus** feeder over 24 h at 15-minute resolution, with per-class load
+- The **33-bus** feeder over 24 h at 15-minute resolution, with per-class load
   shapes and a clear-sky PV profile.
 - Three smart inverters, an inverter capability polygon, and a curtailment-minimising
   objective.

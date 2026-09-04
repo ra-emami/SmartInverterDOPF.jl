@@ -2,7 +2,7 @@
     SmartInverterDOPF
 
 Modeling smart inverters in distribution optimal power flow, by embedding the
-IEEE 1547 Volt-VAr (Q-V) droop curve of each inverter into the OPF itself.
+IEEE 1547 Volt-VAr (Q-V) droop curve of each inverter into the DOPF itself.
 
 The package provides two distribution OPF host models and three interchangeable
 encodings of the droop law, chosen independently of one another.

@@ -7,9 +7,10 @@ Modeling Smart Inverters in Distribution Optimal Power Flow
 
 A smart inverter does not accept a reactive-power set-point. It follows a Volt-VAr
 curve, deciding from its own terminal voltage how much reactive power to inject or
-absorb. An OPF that ignores that curve returns a dispatch the inverter is never going to
+absorb. A distribution optimal power flow (DOPF) that ignores that curve returns a
+dispatch the inverter is never going to
 deliver. This package puts the curve inside the optimisation, three different ways, and
-runs each of them against four distribution OPF host models: two single-phase, two
+runs each of them against four DOPF host models: two single-phase, two
 three-phase, linear and near-exact in each pair. The encodings agree; the hosts do not,
 and an exact AC power flow decides between them.
 
@@ -96,10 +97,57 @@ Pkg.add(["Gurobi", "Ipopt"])
 | `:bigm`, `:lambda` | MILP | Gurobi |
 | `:heaviside` | NLP | Ipopt |
 
-Gurobi is commercial and needs a licence in place before `Gurobi.jl` will build, and is
+Gurobi is commercial and needs a licence, and is
 [free for academic users](https://www.gurobi.com/academia/academic-program-and-licenses/).
 Ipopt is open source and needs no licence, so the `:heaviside` route runs with no
 commercial software at all.
+
+#### Installing Gurobi
+
+`Pkg.add("Gurobi")` installs the wrapper and, with it, the Gurobi binaries from
+[`Gurobi_jll`](https://github.com/jump-dev/Gurobi_jll.jl), so there is no separate solver
+download to do. What it does not install is a **licence**, and the size-limited trial
+licence that ships with those binaries is nowhere near enough for the models here: the
+three-phase case study builds a few hundred thousand variables and the scalability check
+3.3 million.
+
+To get one, register at [gurobi.com](https://www.gurobi.com) and request a licence,
+which is [free for academics](https://www.gurobi.com/academia/academic-program-and-licenses/),
+then follow Gurobi's
+[retrieval and setup instructions](https://support.gurobi.com/hc/en-us/articles/12872879801105-How-do-I-retrieve-and-set-up-a-Gurobi-license).
+What you do next depends on the licence type. A Web License Service (WLS) licence is a
+file you place in your home directory and nothing further is needed. A named-user licence
+is fetched with `grbgetkey`:
+
+```julia
+using Pkg
+Pkg.add("Gurobi_jll")
+import Gurobi_jll
+key = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"     # your own key
+run(`$(Gurobi_jll.grbgetkey()) $key`)
+```
+
+If you already run a full Gurobi installation of your own and want Julia to use that
+instead of the bundled binaries, point `GUROBI_HOME` at it, opt out, and rebuild:
+
+```julia
+ENV["GUROBI_HOME"] = "C:\\gurobi1200\\win64"    # or /Library/gurobi1200/macos_universal2
+ENV["GUROBI_JL_USE_GUROBI_JLL"] = "false"
+Pkg.add("Gurobi")
+Pkg.build("Gurobi")
+```
+
+To confirm the licence is live, solve something trivial:
+
+```julia
+using JuMP, Gurobi
+model = Model(Gurobi.Optimizer)
+@variable(model, x >= 0)
+@objective(model, Min, x)
+optimize!(model)        # prints the licence banner, then reports OPTIMAL
+```
+
+Ipopt needs none of this. `Pkg.add("Ipopt")` is the whole installation.
 
 > **On open-source MILP solvers.** We also tried HiGHS and GLPK on this model and neither
 > worked out: one returned an infeasible status inside the successive-linearisation loop,
@@ -173,7 +221,7 @@ curtailment, all with voltages held inside `[0.95, 1.05]` p.u.
 
 | feeder | phases | size | inverters | used for |
 |:--|:--|:--|:--|:--|
-| IEEE 33-bus | single | 33 buses | 3, at buses 7 / 18 / 33 | the main case study; the package's `load_case()` |
+| 33-bus | single | 33 buses | 3, at buses 7 / 18 / 33 | the main case study; the package's `load_case()` |
 | `network_5_Feeder_2` | three | 194 buses, 18 single-phase loads split 4/5/9 | 12 in four size classes, 84 kW | the three-phase case study |
 | `network_17_Feeder_6` | three | 3856 buses, 223 single-phase loads | 12 | the scalability check |
 
@@ -197,7 +245,7 @@ AC power flow for it, and ask whether the inverters would really have produced t
 
 ```
 src/                    the package: case data, droop encodings, DOPF hosts
-data/                   IEEE 33-bus feeder, load profiles, solar profile (JSON)
+data/                   33-bus feeder, load profiles, solar profile (JSON)
 scripts/                generate_results.jl: recomputes the single-phase results
 examples/single_phase/  6 standalone scripts: {ivacopf,lindistflow} × {bigm,lambda,heaviside}
 examples/three_phase/   6 standalone scripts: {LinDist3Flow,IVACOPF3Ph} × {BigM,Lambda,Heaviside}

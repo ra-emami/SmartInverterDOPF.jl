@@ -1,5 +1,5 @@
 {
- "description": "IEEE 33-bus radial feeder",
+ "description": "33-bus radial feeder",
  "base": {
   "S_base_kVA": 10000.0,
   "V_base_kV": 12.66

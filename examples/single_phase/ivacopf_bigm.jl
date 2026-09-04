@@ -3,7 +3,7 @@
 #  HOST   : IVACOPF, a current-voltage AC-OPF, successively linearised
 #  DROOP  : Big-M (MILP, solved with Gurobi)
 #
-#  IEEE 33-bus feeder, 24 h at 15-minute resolution, three PV smart inverters at buses
+#  33-bus feeder, 24 h at 15-minute resolution, three PV smart inverters at buses
 #  7, 18 and 33, minimising total PV curtailment.
 #
 #  This is a thin wrapper: the model lives in the package, and `method` and `host` are

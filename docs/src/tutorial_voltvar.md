@@ -1,8 +1,8 @@
 # Modeling Smart Inverters in Distribution Optimal Power Flow
 
-A smart inverter does not accept a reactive-power set-point as an input. Rather, it follows a Volt-VAr curve: it measures its own terminal voltage and decides, on its own, how much reactive power to inject or absorb. An optimal power flow (OPF) problem that ignores the curve will return a reactive dispatch that could be unsuitable at the local inverter controller level.
+A smart inverter does not accept a reactive-power set-point as an input. Rather, it follows a Volt-VAr curve: it measures its own terminal voltage and decides, on its own, how much reactive power to inject or absorb. A distribution optimal power flow (DOPF) problem that ignores the curve will return a reactive dispatch that could be unsuitable at the local inverter controller level.
 
-This tutorial shows three ways to embed the curve into the OPF formulation, so that every dispatch point the solver returns is one that the inverter would actually produce. All three are exact formulations of the Volt-VAr curve and on the case study below, all three return the same answer. What separates them is the solver technology they demand and how they scale.
+This tutorial shows three ways to embed the curve into the DOPF formulation, so that every dispatch point the solver returns is one that the inverter would actually produce. All three are exact formulations of the Volt-VAr curve and on the case study below, all three return the same answer. What separates them is the solver technology they demand and how they scale.
 
 ```@setup tut
 using JSON3, Plots, Printf, Markdown
@@ -285,10 +285,57 @@ Pkg.add(["Gurobi", "Ipopt"])
 | `:bigm`, `:lambda` | MILP | Gurobi |
 | `:heaviside` | NLP | Ipopt |
 
-Gurobi is commercial and needs a licence in place before `Gurobi.jl` will build, and is
+Gurobi is commercial and needs a licence, and is
 [free for academic users](https://www.gurobi.com/academia/academic-program-and-licenses/).
 Ipopt is open source and needs no licence, so the `:heaviside` route runs with no
 commercial software at all.
+
+#### Installing Gurobi
+
+`Pkg.add("Gurobi")` installs the wrapper and, with it, the Gurobi binaries from
+[`Gurobi_jll`](https://github.com/jump-dev/Gurobi_jll.jl), so there is no separate solver
+download to do. What it does not install is a **licence**, and the size-limited trial
+licence that ships with those binaries is nowhere near enough for the models here: the
+three-phase case study builds a few hundred thousand variables and the scalability check
+3.3 million.
+
+To get one, register at [gurobi.com](https://www.gurobi.com) and request a licence,
+which is [free for academics](https://www.gurobi.com/academia/academic-program-and-licenses/),
+then follow Gurobi's
+[retrieval and setup instructions](https://support.gurobi.com/hc/en-us/articles/12872879801105-How-do-I-retrieve-and-set-up-a-Gurobi-license).
+What you do next depends on the licence type. A Web License Service (WLS) licence is a
+file you place in your home directory and nothing further is needed. A named-user licence
+is fetched with `grbgetkey`:
+
+```julia
+using Pkg
+Pkg.add("Gurobi_jll")
+import Gurobi_jll
+key = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"     # your own key
+run(`$(Gurobi_jll.grbgetkey()) $key`)
+```
+
+If you already run a full Gurobi installation of your own and want Julia to use that
+instead of the bundled binaries, point `GUROBI_HOME` at it, opt out, and rebuild:
+
+```julia
+ENV["GUROBI_HOME"] = "C:\\gurobi1200\\win64"    # or /Library/gurobi1200/macos_universal2
+ENV["GUROBI_JL_USE_GUROBI_JLL"] = "false"
+Pkg.add("Gurobi")
+Pkg.build("Gurobi")
+```
+
+To confirm the licence is live, solve something trivial:
+
+```julia
+using JuMP, Gurobi
+model = Model(Gurobi.Optimizer)
+@variable(model, x >= 0)
+@objective(model, Min, x)
+optimize!(model)        # prints the licence banner, then reports OPTIMAL
+```
+
+Ipopt needs none of this. `Pkg.add("Ipopt")` is the whole installation.
 
 !!! note "On open-source MILP solvers"
     We also tried the open-source MILP solvers **HiGHS** and **GLPK** on this model.
@@ -300,16 +347,16 @@ commercial software at all.
     Ipopt**, which is open source, and reaches the same answer. That is a practical
     reason to consider an integer-free formulation.
 
-## Why the curve has to be embedded in the OPF
+## Why the curve has to be embedded in the DOPF
 
 IEEE 1547-2018 [[1]](#ref-1) requires every interconnecting distributed energy resource (DER) to be
 capable
 of Volt-VAr control. The utility enables the function and sets the curve; the inverter
 then runs it autonomously as a local feedback law. An advanced distribution management
-system (ADMS) can coordinate hundreds of these inverters through a distribution optimal
-power flow (DOPF), but only if the DOPF knows the law each one is following.
+system (ADMS) can coordinate hundreds of these inverters through a DOPF, but only if
+that DOPF knows the law each one is following.
 
-Leave the curve out and the OPF treats ``q_i^G`` as a free decision variable inside the
+Leave the curve out and the DOPF treats ``q_i^G`` as a free decision variable inside the
 inverter's apparent-power circle. It will pick whatever value minimises the objective.
 The inverter, meanwhile, is looking at its own terminal voltage and producing something
 else entirely. The dispatch is not merely suboptimal; it is not physically realisable.
@@ -406,7 +453,7 @@ The three columns are three answers to one question: how do you say "it depends"
 solver? Each pays for exactness in a different currency: a constant you must choose,
 a combinatorial structure, or differentiability.
 
-The droop is a self-contained module. Whatever distribution OPF you use, it exposes a
+The droop is a self-contained module. Whatever DOPF you use, it exposes a
 voltage magnitude at each inverter bus; the droop module adds the relationship tying
 that inverter's reactive output to that voltage:
 
@@ -711,7 +758,7 @@ relaxations than Big-M on the same curve.
 
 The Lambda form has a decisive practical advantage over Big-M once you stop treating the
 curve as fixed. The breakpoint voltages ``V^{\text{bp}}_b`` appear *linearly* here, and in
-only one place. Make them decision variables, so the OPF chooses the curve as well as
+only one place. Make them decision variables, so the DOPF chooses the curve as well as
 the dispatch, and exactly one product turns bilinear:
 
 ```math
@@ -1127,12 +1174,12 @@ cited below.
 
 ## The single-phase case study
 
-The IEEE 33-bus radial feeder of Baran and Wu [[2]](#ref-2), over a full day at 15-minute
+The 33-bus radial feeder of Baran and Wu [[2]](#ref-2), over a full day at 15-minute
 resolution, 96 time steps.
 Three photovoltaic (PV) systems with smart inverters sit at buses 7, 18 and 33. Loads follow separate
 industrial, commercial and residential shapes; PV follows a clear-sky irradiance profile.
 
-**Table 6.** The three smart inverters of the single-phase case study on the IEEE 33-bus feeder [[2]](#ref-2): array rating, inverter rating and the resulting reactive capability ``\bar q``.
+**Table 6.** The three smart inverters of the single-phase case study on the 33-bus feeder [[2]](#ref-2): array rating, inverter rating and the resulting reactive capability ``\bar q``.
 
 ```@example tut
 inverter_table()   # hide
@@ -1540,7 +1587,7 @@ worst-case voltage rises to 0.9501 p.u. and the feeder complies.
 
 The reactive support is not a marginal improvement here; it is what makes the feeder
 operable at all. Rerun the same case with the curve flattened to ``q \equiv 0``, so the
-inverters still deliver active power but provide no reactive support, and the OPF is
+inverters still deliver active power but provide no reactive support, and the DOPF is
 **infeasible** at these voltage limits. There is no active-power dispatch that keeps this
 feeder inside ``[0.95, 1.05]`` without Volt-VAr control.
 
@@ -1594,7 +1641,7 @@ visible:
   injection for the evening.
 
 Every one of those transitions happens at a breakpoint of the curve, with no set-point
-sent from anywhere: the inverter is reading its own terminal voltage, and the OPF has
+sent from anywhere: the inverter is reading its own terminal voltage, and the DOPF has
 scheduled the feeder knowing exactly what it will do. The bottom panel shows this inverter
 delivering all the active power available to it; the reactive support is enough here, so
 nothing is curtailed at bus 18.
@@ -1792,7 +1839,7 @@ The implementation works in magnitude rather than squared magnitude
 (``w_j - w_i \approx 2 V^{\mathrm{nom}}(v_j - v_i)`` near nominal) so that the droop
 breakpoints stay in ordinary p.u. voltage. That done, the complete host is four
 equations: the lossless power balance per bus *and* per phase, which is Eq. (20) of
-[[12]](#ref-12), the coupled drop above, the slack, and the voltage limits its OPF,
+[[12]](#ref-12), the coupled drop above, the slack, and the voltage limits its DOPF,
 Eq. (24), imposes:
 
 ```math
@@ -2419,7 +2466,7 @@ Swap `:lambda` for `:bigm` or `:heaviside`; the latter needs an NLP solver such 
 
 **Embedding is a correctness requirement, not a refinement.** Smart inverters follow
 their curve, not a set-point; that is what IEEE Std 1547-2018 [[1]](#ref-1) obliges them
-to do. Only a droop-aware OPF returns a dispatch the fleet will actually deliver.
+to do. Only a droop-aware DOPF returns a dispatch the fleet will actually deliver.
 
 **Two exact families, one curve.** Integer encodings (Big-M, Lambda/SOS2) give an MILP;
 non-smooth algebra (Heaviside) gives an NLP. All three reproduce the curve to
@@ -2476,7 +2523,7 @@ Optimal Power Flow for Advanced Distribution Management System Applications,"
 **IVACOPF**, the origin of the current-voltage host; the successive-linearisation
 scheme built on it here is developed further in [[11]](#ref-11).
 
-**Embedding the Volt-VAr droop curve in a distribution OPF**
+**Embedding the Volt-VAr droop curve in a DOPF**
 
 ```@raw html
 <a id="ref-5"></a>
