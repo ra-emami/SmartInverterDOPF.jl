@@ -300,9 +300,7 @@ three-phase case study builds a few hundred thousand variables and the scalabili
 3.3 million.
 
 To get one, register at [gurobi.com](https://www.gurobi.com) and request a licence,
-which is [free for academics](https://www.gurobi.com/academia/academic-program-and-licenses/),
-then follow Gurobi's
-[retrieval and setup instructions](https://support.gurobi.com/hc/en-us/articles/12872879801105-How-do-I-retrieve-and-set-up-a-Gurobi-license).
+which is [free for academics](https://www.gurobi.com/academia/academic-program-and-licenses/).
 What you do next depends on the licence type. A Web License Service (WLS) licence is a
 file you place in your home directory and nothing further is needed. A named-user licence
 is fetched with `grbgetkey`:
