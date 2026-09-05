@@ -126,7 +126,7 @@
    "max_droop_deviation": 6.731e-16,
    "Vmin": 0.9559,
    "Vmax": 1.0123,
-   "note": "reduced horizon — the 96-step model errors out. Solve time from the sweep; droop deviation and voltage range from a reproduction run, which returns the identical 0.95 kWh of curtailment."
+   "note": "reduced horizon; the 96-step model errors out. Solve time from the sweep; droop deviation and voltage range from a reproduction run, which returns the identical 0.95 kWh of curtailment."
   }
  ]
 }
